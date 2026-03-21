@@ -1,0 +1,30 @@
+[project]
+name = "slurptuna"
+version = "0.1.0"
+description = "Simple objective optimization orchestration for Slurm clusters"
+readme = "README.md"
+authors = [
+    { name = "younesStrittmatter", email = "ystrittm@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "optuna>=3.6.0",
+    "pyyaml>=6.0.1",
+]
+
+[project.scripts]
+slurptuna = "slurptuna.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "ruff>=0.6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[build-system]
+requires = ["uv_build>=0.10.11,<0.11.0"]
+build-backend = "uv_build"
