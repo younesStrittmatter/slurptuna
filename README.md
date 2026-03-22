@@ -42,7 +42,7 @@ from slurptuna import ExecutionMode, loss, optimize_run
     description="Fit alpha/beta",
     parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
 )
-def my_model(params, seed, context):
+def my_model(params, seed):
     return abs(params["alpha"] - 0.3) + abs(params["beta"] - 0.7)
 
 if __name__ == "__main__":
@@ -59,6 +59,10 @@ if __name__ == "__main__":
 ```
 
 ### Parameter space
+
+Loss functions may accept either `(params, seed)` or `(params, seed, context)`.
+Use `context` only when you need framework-provided metadata such as `entry_id`
+from `optimize_entries`.
 
 Tuple shorthand is interpreted as `(min, max)`:
 

@@ -123,7 +123,7 @@ def _objective_local(
     rows = [
         normalize_seed_loss(
             seed,
-            loss.seed_loss_fn(
+            loss.evaluate_seed_loss(
                 params,
                 seed,
                 {

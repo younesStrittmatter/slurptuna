@@ -2,12 +2,39 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable, Literal, Optional
 
 from .params import ParamValue, ParamSpec, SearchParam, normalize_parameter_space
 
 LossRaw = object
-SeedLossFn = Callable[[dict[str, ParamValue], int, dict[str, object]], LossRaw]
+SeedLossFn = Callable[..., LossRaw]
+SeedLossCallMode = Literal["two_positional", "three_positional", "keyword_context"]
+
+
+def _resolve_seed_loss_call_mode(fn: SeedLossFn) -> SeedLossCallMode:
+    signature = inspect.signature(fn)
+
+    try:
+        signature.bind({}, 0, {})
+    except TypeError:
+        pass
+    else:
+        return "three_positional"
+
+    try:
+        signature.bind({}, 0, context={})
+    except TypeError:
+        pass
+    else:
+        return "keyword_context"
+
+    try:
+        signature.bind({}, 0)
+    except TypeError as exc:
+        raise TypeError(
+            "@loss functions must accept either (params, seed) or (params, seed, context)"
+        ) from exc
+    return "two_positional"
 
 
 @dataclass(frozen=True)
@@ -16,10 +43,23 @@ class LossDefinition:
     description: str
     parameter_space: dict[str, SearchParam]
     seed_loss_fn: SeedLossFn
+    seed_loss_call_mode: SeedLossCallMode
     default_num_chunks: int = 10
     default_chunk_size: int = 100
     seed_start: int = 0
     source_file: Optional[str] = field(default=None, compare=False, hash=False)
+
+    def evaluate_seed_loss(
+        self,
+        params: dict[str, ParamValue],
+        seed: int,
+        context: dict[str, object],
+    ) -> LossRaw:
+        if self.seed_loss_call_mode == "three_positional":
+            return self.seed_loss_fn(params, seed, context)
+        if self.seed_loss_call_mode == "keyword_context":
+            return self.seed_loss_fn(params, seed, context=context)
+        return self.seed_loss_fn(params, seed)
 
 
 _REGISTRY: dict[str, LossDefinition] = {}
@@ -62,12 +102,14 @@ def loss(
             src = inspect.getfile(fn)
         except (TypeError, OSError):
             src = None
+        call_mode = _resolve_seed_loss_call_mode(fn)
         return register_loss(
             LossDefinition(
                 name=name,
                 description=description,
                 parameter_space=normalize_parameter_space(parameter_space),
                 seed_loss_fn=fn,
+                seed_loss_call_mode=call_mode,
                 default_num_chunks=default_num_chunks,
                 default_chunk_size=default_chunk_size,
                 seed_start=seed_start,

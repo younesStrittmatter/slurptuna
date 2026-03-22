@@ -15,8 +15,7 @@ PARTICIPANTS = {
     description="Fit shared alpha/beta across participants",
     parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
 )
-def participant_parallel_demo(params, seed, context):
-    _ = context
+def participant_parallel_demo(params, seed):
     # Return dict => slurptuna averages participant losses per seed.
     # Seed-dependent term mimics per-seed simulation stochasticity.
     seed_term = (seed % 23) * 1e-4

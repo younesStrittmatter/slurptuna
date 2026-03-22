@@ -28,6 +28,41 @@ def test_optimize_toy_loss_runs():
     assert "beta" in result.best_params
 
 
+@loss(
+    name="toy_no_context",
+    description="Toy loss without context argument",
+    parameter_space={"alpha": (0.0, 1.0)},
+    default_num_chunks=1,
+    default_chunk_size=4,
+)
+def toy_no_context(params, seed):
+    return abs(params["alpha"] - 0.4) + (seed % 2) * 0.01
+
+
+def test_optimize_allows_loss_without_context_argument():
+    result = optimize(toy_no_context, n_trials=3, seeds=[0, 1], random_seed=19)
+    assert result.loss_name == "toy_no_context"
+    assert 0.0 <= float(result.best_params["alpha"]) <= 1.0
+
+
+@loss(
+    name="toy_keyword_context",
+    description="Toy loss with keyword-only context argument",
+    parameter_space={"alpha": (0.0, 1.0)},
+    default_num_chunks=1,
+    default_chunk_size=4,
+)
+def toy_keyword_context(params, seed, *, context):
+    _ = context
+    return abs(params["alpha"] - 0.25) + (seed % 2) * 0.01
+
+
+def test_optimize_allows_keyword_only_context_argument():
+    result = optimize(toy_keyword_context, n_trials=3, seeds=[0, 1], random_seed=23)
+    assert result.loss_name == "toy_keyword_context"
+    assert 0.0 <= float(result.best_params["alpha"]) <= 1.0
+
+
 def test_optimize_run_local_creates_run_dir(tmp_path: Path):
     result = optimize_run(
         toy_conditions,
@@ -169,4 +204,20 @@ def test_loss_decorator_requires_metadata(kwargs, missing):
         @loss(**kwargs)
         def _invalid_loss(params, seed, context):
             _ = (params, seed, context)
+            return 0.0
+
+
+def test_loss_decorator_rejects_invalid_signature():
+    with pytest.raises(
+        TypeError,
+        match=r"must accept either \(params, seed\) or \(params, seed, context\)",
+    ):
+
+        @loss(
+            name="invalid_signature",
+            description="invalid",
+            parameter_space={"x": (0.0, 1.0)},
+        )
+        def _invalid_loss(context):
+            _ = context
             return 0.0
