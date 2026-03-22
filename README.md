@@ -1,6 +1,18 @@
-# slurptuna
+# slurptuna – Run Optuna on Slurm (HPC hyperparameter optimization made simple)
+> Run Optuna hyperparameter optimization on Slurm clusters without writing sbatch scripts or managing distributed workers.
 
-Optuna hyperparameter optimization on Slurm, without the boilerplate.
+Running Optuna on a Slurm cluster (HPC) is not straightforward. `slurptuna` provides a simple way to run Optuna on Slurm with minimal setup.
+
+In practice, running Optuna on Slurm clusters usually means:
+- writing and managing `sbatch` job arrays
+- coordinating distributed Optuna trials 
+- aggregating results across workers
+
+While Optuna supports distributed optimization, integrating it with Slurm
+typically requires custom orchestration.
+
+`slurptuna` removes that overhead by handling job submission, parallel execution,
+and result aggregation automatically.
 
 ## Install
 
@@ -16,7 +28,9 @@ uv add slurptuna
 
 ## Usage
 
-Write your loss function in a script:
+Here is a minimal example of running Optuna on Slurm using `slurptuna`:
+
+### (1) Write your loss function in a script
 
 ```python
 # my_model.py
@@ -43,7 +57,7 @@ if __name__ == "__main__":
     # best params and best value are also written to runs/my_model_v0001/summary.json
 ```
 
-Submit your script as a long-running controller job on Slurm:
+### (2) Submit your script as a long-running controller job on Slurm:
 
 ```bash
 sbatch run_controller.sh my_model.py
@@ -67,4 +81,4 @@ you just wait for the result.
 
 ## Docs
 
-[younesstrittmatter.github.io/surptuna](https://younesstrittmatter.github.io/surptuna)
+[younesstrittmatter.github.io/slurptuna](https://younesstrittmatter.github.io/slurptuna)

@@ -1,12 +1,14 @@
 # slurptuna
 
-Optuna hyperparameter optimization on Slurm, without the boilerplate.
+Run Optuna hyperparameter optimization on Slurm (HPC clusters) without boilerplate.
 
-Running Optuna in distributed mode on a Slurm cluster normally requires writing
-custom job scripts, managing shared storage, and coordinating workers manually.
-slurptuna wraps all of that behind a single function call.
+slurptuna is a simple way to run Optuna on Slurm clusters without writing sbatch scripts or managing distributed workers.
 
-## How it works
+Running Optuna in distributed mode on a Slurm cluster (HPC) normally requires writing
+custom job scripts, managing shared storage, and coordinating distributed workers manually.
+slurptuna wraps this behind a single function call.
+
+## How slurptuna runs Optuna on Slurm
 
 You write a **loss function** decorated with `@loss`, then call `optimize_run`.
 slurptuna handles:
@@ -34,4 +36,4 @@ uv add slurptuna
 - [Distributed Mode](distributed.md) — how chunk/reduce jobs work and what knobs to turn
 - [Participant-wise Fitting](participant-wise.md) — fitting one parameter set per participant
 
-Full docs: [younesstrittmatter.github.io/surptuna](https://younesstrittmatter.github.io/surptuna)
+Full docs: [younesstrittmatter.github.io/slurptuna](https://younesstrittmatter.github.io/slurptuna)

@@ -10,8 +10,8 @@ Contributions are welcome — whether that's code, bug reports, or documentation
 To set up a local dev environment:
 
 ```bash
-git clone https://github.com/younesStrittmatter/surptuna.git
-cd surptuna
+git clone https://github.com/younesStrittmatter/slurptuna.git
+cd slurptuna
 uv sync --group dev
 ```
 
