@@ -58,6 +58,26 @@ if __name__ == "__main__":
     # best params and best value are also written to runs/my_model_v0001/summary.json
 ```
 
+### Parameter space
+
+Tuple shorthand is interpreted as `(min, max)`:
+
+```python
+parameter_space={"alpha": (0.0, 1.0)}
+```
+
+You can also use explicit specs when needed:
+
+```python
+from slurptuna import search_param
+
+parameter_space={
+    "alpha": search_param(range=(0.0, 1.0)),
+    "steps": search_param(range=(1, 10), dtype="int"),
+    "mode": search_param(allowed=["fast", "slow"]),
+}
+```
+
 ### (2) Submit your script as a long-running controller job on Slurm:
 
 ```bash

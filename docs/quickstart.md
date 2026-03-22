@@ -31,8 +31,28 @@ if __name__ == "__main__":
         worker_time_limit=timedelta(minutes=30),
     )
     print(result.best_params)
-    print(result.best_value)
+    print(result.best_value)˝
 ```
+
+### Parameter space options
+  
+The tuple shorthand is interpreted as `(min, max)`:
+
+```python
+parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)}
+```
+
+You can use explicit specs when needed:
+
+```python
+from slurptuna import search_param
+parameter_space={
+  "alpha": search_param(range=(0.0, 1.0)),
+  "steps": search_param(range=(1, 10), dtype="int"),
+  "mode": search_param(allowed=["fast", "slow"]),
+}
+```
+
 
 ## 2. Create a controller script
 

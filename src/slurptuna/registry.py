@@ -4,15 +4,17 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from .params import ParamValue, ParamSpec, SearchParam, normalize_parameter_space
+
 LossRaw = object
-SeedLossFn = Callable[[dict[str, float], int, dict[str, object]], LossRaw]
+SeedLossFn = Callable[[dict[str, ParamValue], int, dict[str, object]], LossRaw]
 
 
 @dataclass(frozen=True)
 class LossDefinition:
     name: str
     description: str
-    parameter_space: dict[str, tuple[float, float]]
+    parameter_space: dict[str, SearchParam]
     seed_loss_fn: SeedLossFn
     default_num_chunks: int = 10
     default_chunk_size: int = 100
@@ -34,7 +36,7 @@ def loss(
     *,
     name: str | None = None,
     description: str | None = None,
-    parameter_space: dict[str, tuple[float, float]] | None = None,
+    parameter_space: dict[str, ParamSpec] | None = None,
     default_num_chunks: int = 10,
     default_chunk_size: int = 100,
     seed_start: int = 0,
@@ -64,7 +66,7 @@ def loss(
             LossDefinition(
                 name=name,
                 description=description,
-                parameter_space=parameter_space,
+                parameter_space=normalize_parameter_space(parameter_space),
                 seed_loss_fn=fn,
                 default_num_chunks=default_num_chunks,
                 default_chunk_size=default_chunk_size,
