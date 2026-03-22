@@ -66,11 +66,10 @@ def _resolve_seed_layout(
     loss: LossDefinition,
     seeds: Iterable[int] | None,
     n_seeds: int | None,
-    chunk_size: int | None,
-    num_chunks: int | None,
+    chunk_size: int,
+    num_chunks: int,
 ) -> tuple[list[int], int, int]:
-    resolved_chunk_size = chunk_size or loss.default_chunk_size
-    if resolved_chunk_size <= 0:
+    if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0")
 
     if seeds is not None:
@@ -83,19 +82,14 @@ def _resolve_seed_layout(
                 raise ValueError("n_seeds must be > 0")
             total_seeds = n_seeds
         else:
-            resolved_num_chunks = num_chunks or loss.default_num_chunks
-            if resolved_num_chunks <= 0:
+            if num_chunks <= 0:
                 raise ValueError("num_chunks must be > 0")
-            total_seeds = resolved_chunk_size * resolved_num_chunks
+            total_seeds = chunk_size * num_chunks
 
         active_seeds = list(range(loss.seed_start, loss.seed_start + total_seeds))
 
-    derived_num_chunks = (len(active_seeds) + resolved_chunk_size - 1) // resolved_chunk_size
-    if num_chunks is not None and num_chunks != derived_num_chunks:
-        raise ValueError(
-            f"num_chunks={num_chunks} does not match seeds/chunk_size layout ({derived_num_chunks})"
-        )
-    return active_seeds, resolved_chunk_size, derived_num_chunks
+    derived_num_chunks = (len(active_seeds) + chunk_size - 1) // chunk_size
+    return active_seeds, chunk_size, derived_num_chunks
 
 
 def _next_versioned_run_name(run_root: Path, loss_name: str) -> str:
@@ -161,17 +155,40 @@ def optimize_run(
     worker_parallelism: int = 1,
     worker_time_limit: timedelta = timedelta(hours=1),
     trial_retry_attempts: int = 1,
+    fail_on_chunk_error: bool = True,
 ) -> OptimizeResult:
-    """Single public orchestration API: define a loss and optimize it.
+    """Optimize hyperparameters for a single shared fit.
 
-    mode:
-    - single: execute objective directly in-process
-    - distributed: submit chunk/reduce jobs via sbatch arrays for each trial
+    Runs Bayesian optimization on a loss function. For averaging across multiple entries
+    (participants, conditions, etc.), return a dict from your loss function. For per-entry
+    optimization, use optimize_entries() instead.
 
-    seed/chunk controls:
-    - seeds: explicit iterable of seed IDs (highest priority)
-    - n_seeds: generate contiguous seeds from loss.seed_start
-    - chunk_size / num_chunks: controls Slurm array shape and default seed count
+    Args:
+        loss: LossDefinition created with the @loss decorator.
+        n_trials: Number of optimization trials to run. Default 10.
+        seeds: Explicit iterable of seed integer IDs (takes priority over n_seeds).
+        n_seeds: Number of contiguous seeds starting from loss.seed_start. Default derived from chunk_size/num_chunks.
+        chunk_size: Seeds per distributed task (for mode=DISTRIBUTED). Default from loss metadata.
+        num_chunks: Number of chunks per trial (for mode=DISTRIBUTED). Default auto from n_seeds/chunk_size.
+        random_seed: Seed for TPESampler (Optuna). Default 123.
+        entry_id: Optional entry/participant ID passed to loss context. Only used in optimize_entries().
+        direction: Optimization direction: "minimize" or "maximize". Default "minimize".
+        mode: ExecutionMode.SINGLE (in-process) or ExecutionMode.DISTRIBUTED (Slurm arrays). Default SINGLE.
+        run_root: Root directory for output runs. Default "runs".
+        run_name: Name of this run directory. Auto-generated if not provided.
+        loss_module: Module path for loss function (required for DISTRIBUTED mode if loss not in __main__).
+        slurm_poll_seconds: Polling interval for Slurm job status. Default 15.
+        slurm_timeout_minutes: Maximum wait time for distributed job. Default 120.
+        cpus_per_task: CPUs per Slurm task (DISTRIBUTED only). Default 1.
+        max_concurrent_trials: Number of trials to run in parallel. Default 1.
+        array_parallelism_limit: Max concurrent Slurm array jobs (DISTRIBUTED). Default unlimited.
+        worker_parallelism: Number of seeds in parallel per worker. Default 1.
+        worker_time_limit: Max wall time per distributed task. Default 1 hour.
+        trial_retry_attempts: Retry failed trials this many times. Default 1 (no retries).
+        fail_on_chunk_error: Whether to fail immediately if any chunk fails in distributed mode. Default True.
+
+    Returns:
+        OptimizeResult with best_value, best_params, study metadata, and run_dir path.
     """
 
     register_loss(loss, overwrite=True)
@@ -189,8 +206,8 @@ def optimize_run(
         loss=loss,
         seeds=seeds,
         n_seeds=n_seeds,
-        chunk_size=chunk_size,
-        num_chunks=num_chunks,
+        chunk_size=chunk_size or 100,
+        num_chunks=num_chunks or 10,
     )
 
     run_root_path = Path(run_root)
@@ -235,6 +252,19 @@ def optimize_run(
         study_name=loss.name,
     )
 
+    # Callback to write summary.json after each trial completes
+    def _write_summary_callback(study: optuna.study.Study, trial: optuna.trial.Trial) -> None:
+        (run_dir / "summary.json").write_text(
+            json.dumps(
+                {
+                    "best_value": float(study.best_value),
+                    "best_params": dict(study.best_params),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
     if resolved_mode == ExecutionMode.SINGLE:
         def objective_local(trial: optuna.trial.Trial) -> float:
             return _objective_local(
@@ -244,7 +274,7 @@ def optimize_run(
                 entry_id=entry_id,
             )
 
-        study.optimize(objective_local, n_trials=n_trials, n_jobs=max_concurrent_trials)
+        study.optimize(objective_local, n_trials=n_trials, n_jobs=max_concurrent_trials, callbacks=[_write_summary_callback])
     elif resolved_mode == ExecutionMode.DISTRIBUTED:
         resolved_loss_module = loss_module or getattr(loss.seed_loss_fn, "__module__", "")
         if (not resolved_loss_module) or resolved_loss_module == "__main__":
@@ -263,6 +293,7 @@ def optimize_run(
             cpus_per_task=cpus_per_task,
             array_parallelism_limit=array_parallelism_limit,
             worker_time_limit=worker_time_limit,
+            fail_on_chunk_error=fail_on_chunk_error,
         )
 
         project_root = Path.cwd()
@@ -293,7 +324,14 @@ def optimize_run(
                 )
 
                 try:
-                    summary = wait_for_summary(summary_path, config=slurm_cfg)
+                    # Compute chunks_dir based on trial structure
+                    chunks_dir = summary_path.parent / "chunks"
+                    summary = wait_for_summary(
+                        summary_path,
+                        config=slurm_cfg,
+                        chunks_dir=chunks_dir,
+                        expected_chunks=resolved_num_chunks,
+                    )
                     trial.set_user_attr("n_seeds", summary["n_seeds"])
                     trial.set_user_attr("retry_attempts_used", attempt)
                     return float(summary["mean_total_loss"])
@@ -306,7 +344,7 @@ def optimize_run(
                 f"Trial {trial.number} failed after {trial_retry_attempts + 1} attempts"
             ) from last_error
 
-        study.optimize(objective_slurm, n_trials=n_trials, n_jobs=max_concurrent_trials)
+        study.optimize(objective_slurm, n_trials=n_trials, n_jobs=max_concurrent_trials, callbacks=[_write_summary_callback])
     else:
         raise ValueError("mode must be one of: single, distributed")
 
@@ -340,17 +378,6 @@ def optimize_run(
         encoding="utf-8",
     )
 
-    (run_dir / "summary.json").write_text(
-        json.dumps(
-            {
-                "best_value": float(study.best_value),
-                "best_params": dict(study.best_params),
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
     return OptimizeResult(
         loss_name=loss.name,
         best_value=float(study.best_value),
@@ -362,31 +389,7 @@ def optimize_run(
     )
 
 
-def optimize(
-    loss: LossDefinition,
-    *,
-    n_trials: int = 10,
-    seeds: Iterable[int] | None = None,
-    n_seeds: int | None = None,
-    chunk_size: int | None = None,
-    num_chunks: int | None = None,
-    random_seed: int = 123,
-    entry_id: str | None = None,
-    direction: str = "minimize",
-) -> OptimizeResult:
-    """Backward-compatible local optimizer helper."""
-    return optimize_run(
-        loss,
-        n_trials=n_trials,
-        seeds=seeds,
-        n_seeds=n_seeds,
-        chunk_size=chunk_size,
-        num_chunks=num_chunks,
-        random_seed=random_seed,
-        entry_id=entry_id,
-        direction=direction,
-        mode=ExecutionMode.SINGLE,
-    )
+
 
 
 def _sanitize_entry_label(value: str) -> str:
@@ -418,11 +421,47 @@ def optimize_entries(
     max_concurrent_entries: int | None = None,
     worker_time_limit: timedelta = timedelta(hours=1),
     trial_retry_attempts: int = 1,
+    fail_on_chunk_error: bool = True,
 ) -> MultiOptimizeResult:
-    """Optimize one independent fit per entry_id and return n best parameter sets.
+    """Optimize independent fits for each entry, returning per-entry best parameters.
 
-    This is a modeling-parallel mode: each entry gets its own optimization study.
-    Cluster acceleration is still available by setting mode=ExecutionMode.DISTRIBUTED.
+    Use this for participant-wise, condition-wise, or other per-entry fitting where each
+    entry gets its own separate optimization study. The loss function receives the current
+    entry_id in its context dict, allowing entry-specific behavior.
+
+    Args:
+        loss: LossDefinition created with the @loss decorator.
+        entry_ids: Iterable of entry identifiers (e.g., participant IDs, condition names).
+            Each entry gets its own optimization study.
+        n_trials: Number of optimization trials per entry. Default 10.
+        seeds: Explicit iterable of seed IDs (takes priority over n_seeds).
+        n_seeds: Number of contiguous seeds per entry. Default derived from chunk_size/num_chunks.
+        chunk_size: Seeds per distributed task (for mode=DISTRIBUTED). Default from loss metadata.
+        num_chunks: Number of chunks per trial (for mode=DISTRIBUTED). Default auto from n_seeds/chunk_size.
+        random_seed: Base seed for TPESampler; each entry gets random_seed + entry_index. Default 123.
+        direction: Optimization direction: "minimize" or "maximize". Default "minimize".
+        mode: ExecutionMode.SINGLE (in-process) or ExecutionMode.DISTRIBUTED (Slurm arrays). Default SINGLE.
+        run_root: Root directory for all output. Default "runs".
+        run_name_prefix: Prefix for the parent directory containing all entry runs. Auto-generated if not provided.
+        loss_module: Module path for loss function (required for DISTRIBUTED mode if loss not in __main__).
+        slurm_poll_seconds: Polling interval for Slurm job status. Default 15.
+        slurm_timeout_minutes: Maximum wait time for distributed jobs. Default 120.
+        cpus_per_task: CPUs per Slurm task (DISTRIBUTED only). Default 1.
+        max_concurrent_trials: Number of trials per entry to run in parallel. Default 1.
+        array_parallelism_limit: Max concurrent Slurm array jobs across all entries (DISTRIBUTED). Default unlimited.
+        worker_parallelism: Number of seeds in parallel per worker. Default 1.
+        max_concurrent_entries: Number of entries to optimize in parallel. Default all entries.
+        worker_time_limit: Max wall time per distributed task. Default 1 hour.
+        trial_retry_attempts: Retry failed trials this many times. Default 1 (no retries).
+        fail_on_chunk_error: Whether to fail immediately if any chunk fails in distributed mode. Default True.
+
+    Returns:
+        MultiOptimizeResult containing:
+        - best_params_by_entry: Dict mapping entry_id -> best parameters
+        - results_by_entry: Dict mapping entry_id -> OptimizeResult for each entry
+        - entries: List of all entry IDs
+        - n_entries: Total number of entries
+        - mode: ExecutionMode used
     """
 
     entry_list = [str(x) for x in entry_ids]
@@ -468,6 +507,7 @@ def optimize_entries(
             worker_parallelism=worker_parallelism,
             worker_time_limit=worker_time_limit,
             trial_retry_attempts=trial_retry_attempts,
+            fail_on_chunk_error=fail_on_chunk_error,
         )
         return entry, result
 
@@ -479,20 +519,23 @@ def optimize_entries(
             entry, result = fut.result()
             results_by_entry[entry] = result
 
+            # Write summary.json progressively as each entry completes
+            best_params_by_entry = {k: dict(v.best_params) for k, v in results_by_entry.items()}
+            best_values_by_entry = {k: v.best_value for k, v in results_by_entry.items()}
+            (parent_dir / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "entries": entry_list,
+                        "best_params_by_entry": best_params_by_entry,
+                        "best_values_by_entry": best_values_by_entry,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
     best_params_by_entry = {k: dict(v.best_params) for k, v in results_by_entry.items()}
     best_values_by_entry = {k: v.best_value for k, v in results_by_entry.items()}
-
-    (parent_dir / "summary.json").write_text(
-        json.dumps(
-            {
-                "entries": entry_list,
-                "best_params_by_entry": best_params_by_entry,
-                "best_values_by_entry": best_values_by_entry,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
 
     return MultiOptimizeResult(
         loss_name=loss.name,

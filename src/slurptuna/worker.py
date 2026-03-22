@@ -80,6 +80,7 @@ def run_chunk(args: argparse.Namespace) -> None:
     summary["seed_start"] = start
     summary["seed_end"] = end
     summary["task_id"] = task_id
+    summary["params"] = params
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     out_path = args.out_dir / f"chunk_{task_id:05d}.json"

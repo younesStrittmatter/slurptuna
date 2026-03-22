@@ -14,7 +14,7 @@ PARTICIPANTS = {
 
 @loss(
     name="participant_individual_demo",
-    description="Fit participant-specific alpha/beta with one optimization per participant",
+    description="Fit participant-wise: separate optimization per participant",
     parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
 )
 def participant_individual_demo(params, seed, context):

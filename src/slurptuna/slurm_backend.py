@@ -17,6 +17,7 @@ class SlurmConfig:
     array_parallelism_limit: int | None = None
     worker_time_limit: timedelta = timedelta(hours=1)  # --time passed to chunk/reduce sbatch jobs
     sbatch_executable: str = "sbatch"
+    fail_on_chunk_error: bool = True  # Fail immediately if any chunk fails instead of continuing
 
 
 def _to_slurm_time_limit(value: timedelta) -> str:
@@ -158,11 +159,27 @@ def submit_trial(
     return summary_path
 
 
-def wait_for_summary(summary_path: Path, *, config: SlurmConfig) -> dict[str, object]:
+def wait_for_summary(
+    summary_path: Path,
+    *,
+    config: SlurmConfig,
+    chunks_dir: Path | None = None,
+    expected_chunks: int | None = None,
+) -> dict[str, object]:
     deadline = time.time() + (config.timeout_minutes * 60)
     while True:
         if summary_path.exists():
             return json.loads(summary_path.read_text(encoding="utf-8"))
+        
+        # If fail_on_chunk_error is True, check for missing chunks and fail fast
+        if config.fail_on_chunk_error and chunks_dir is not None and expected_chunks is not None:
+            missing = find_missing_chunks(chunks_dir, expected_chunks)
+            if missing:
+                raise RuntimeError(
+                    f"Chunks failed: missing chunks {missing} out of {expected_chunks}. "
+                    f"Check logs in {chunks_dir.parent} for details."
+                )
+        
         if time.time() >= deadline:
             raise TimeoutError(f"Timed out waiting for {summary_path}")
         time.sleep(config.poll_seconds)

@@ -18,6 +18,8 @@ nav:
   - Quickstart: quickstart.md
   - Distributed Mode: distributed.md
   - Participant-wise Fitting: participant-wise.md
+  - Examples: examples.md
+  - API Reference: api.md
 
 markdown_extensions:
   - pymdownx.highlight:
@@ -25,3 +27,15 @@ markdown_extensions:
   - pymdownx.superfences
   - admonition
   - pymdownx.details
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            show_category_heading: true
+            docstring_style: google
