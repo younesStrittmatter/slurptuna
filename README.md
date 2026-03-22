@@ -35,7 +35,7 @@ Here is a minimal example of running Optuna on Slurm using `slurptuna`:
 ```python
 # my_model.py
 from datetime import timedelta
-from slurptuna import ExecutionMode, loss, optimize_run
+from slurptuna import execution_mode, loss, optimize_run
 
 @loss(
     name="my_model",
@@ -48,7 +48,7 @@ def my_model(params, seed):
 if __name__ == "__main__":
     result = optimize_run(
         my_model,
-        mode=ExecutionMode.DISTRIBUTED,
+        mode=execution_mode("distributed"),
         n_trials=20,
         n_seeds=400,
         chunk_size=20,
@@ -61,8 +61,7 @@ if __name__ == "__main__":
 ### Parameter space
 
 Loss functions may accept either `(params, seed)` or `(params, seed, context)`.
-Use `context` only when you need framework-provided metadata such as `entry_id`
-from `optimize_entries`.
+Most users can ignore `context`; it is reserved for framework-provided metadata.
 
 Tuple shorthand is interpreted as `(min, max)`:
 

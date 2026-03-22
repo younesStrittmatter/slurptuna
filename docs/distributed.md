@@ -1,6 +1,6 @@
 # Distributed Mode
 
-When you set `mode=ExecutionMode.DISTRIBUTED`, slurptuna runs each Optuna trial
+When you set `mode=execution_mode("distributed")`, slurptuna runs each Optuna trial
 as a pair of Slurm jobs instead of in-process.
 
 ## How a trial works
@@ -30,9 +30,11 @@ The controller sits in a polling loop between steps 4 and 5.
 | `trial_retry_attempts` | Retries on timeout before failing a trial |
 
 ```python
+from slurptuna import execution_mode, optimize_run
+
 result = optimize_run(
     my_model,
-    mode=ExecutionMode.DISTRIBUTED,
+    mode=execution_mode("distributed"),
     n_trials=50,
     n_seeds=800,
     chunk_size=40,           # → 20 array tasks per trial

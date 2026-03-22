@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from slurptuna import ExecutionMode, loss, optimize_run
+from slurptuna import execution_mode, loss, optimize_run
 
 PARTICIPANTS = {
     "p01": {"alpha": 0.20, "beta": 0.80},
@@ -29,7 +29,7 @@ if __name__ == "__main__":
     # LOCAL / single-mode run:
     # result = optimize_run(
     #     participant_average_demo,
-    #     mode=ExecutionMode.SINGLE,
+    #     mode=execution_mode("single"),
     #     n_trials=20,
     #     n_seeds=200,
     # )
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     # DISTRIBUTED run with explicit seed/chunk controls:
     result = optimize_run(
         participant_average_demo,
-        mode=ExecutionMode.DISTRIBUTED,
+        mode=execution_mode("distributed"),
         n_trials=20,
         n_seeds=800,      # total seeds evaluated per trial
         chunk_size=40,    # seeds handled by each array task

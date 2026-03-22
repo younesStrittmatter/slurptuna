@@ -2,7 +2,7 @@ from pathlib import Path
 import json
 import pytest
 
-from slurptuna import ExecutionMode, loss, optimize_entries, optimize_run, search_param
+from slurptuna import execution_mode, loss, optimize_entries, optimize_run, search_param
 
 
 @loss(
@@ -60,14 +60,14 @@ def test_optimize_allows_keyword_only_context_argument():
 def test_optimize_run_local_creates_run_dir(tmp_path: Path):
     result = optimize_run(
         toy_conditions,
-        mode=ExecutionMode.SINGLE,
+        mode=execution_mode("single"),
         n_trials=2,
         seeds=[0, 1, 2],
         random_seed=7,
         run_root=tmp_path,
         run_name="test_run",
     )
-    assert result.mode == ExecutionMode.SINGLE
+    assert result.mode.value == "single"
     assert result.run_dir is not None
     run_dir = Path(result.run_dir)
     assert run_dir.exists()
@@ -94,7 +94,7 @@ def test_optimize_entries_returns_one_best_set_per_entry(tmp_path: Path):
     result = optimize_entries(
         toy_entries,
         entry_ids=["p01", "p02"],
-        mode=ExecutionMode.SINGLE,
+        mode=execution_mode("single"),
         n_trials=15,
         seeds=[0, 1],
         random_seed=11,
@@ -148,7 +148,7 @@ def test_optimize_supports_range_allowed_and_dtype():
 def test_summary_json_keeps_non_float_params(tmp_path: Path):
     result = optimize_run(
         toy_mixed_param_specs,
-        mode=ExecutionMode.SINGLE,
+        mode=execution_mode("single"),
         n_trials=3,
         seeds=[0, 1],
         random_seed=17,
@@ -159,6 +159,17 @@ def test_summary_json_keeps_non_float_params(tmp_path: Path):
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert summary["best_params"]["mode"] in {"fast", "slow"}
     assert summary["best_params"]["steps"] in {1, 2, 3}
+
+
+def test_execution_mode_accepts_allowed_strings():
+    assert execution_mode("single").value == "single"
+    assert execution_mode("distributed").value == "distributed"
+
+
+@pytest.mark.parametrize("invalid_mode", ["local", "slurm", "foo", ""])
+def test_execution_mode_rejects_non_allowed_values(invalid_mode):
+    with pytest.raises(ValueError, match="mode must be one of: single, distributed"):
+        execution_mode(invalid_mode)
 
 
 def test_search_param_requires_exactly_one_of_range_or_allowed():

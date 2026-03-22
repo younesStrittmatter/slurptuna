@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from slurptuna import ExecutionMode, loss, optimize_entries
+from slurptuna import execution_mode, loss
+from slurptuna.api import optimize_entries
 
 PARTICIPANTS = {
     "p01": {"alpha": 0.20, "beta": 0.80},
@@ -29,7 +30,7 @@ if __name__ == "__main__":
     # result = optimize_entries(
     #     participant_individual_demo,
     #     entry_ids=PARTICIPANTS.keys(),
-    #     mode=ExecutionMode.SINGLE,
+    #     mode=execution_mode("single"),
     #     n_trials=20,
     #     n_seeds=200,
     #     run_name_prefix="participant_individual_single",
@@ -39,7 +40,7 @@ if __name__ == "__main__":
     result = optimize_entries(
         participant_individual_demo,
         entry_ids=PARTICIPANTS.keys(),
-        mode=ExecutionMode.DISTRIBUTED,
+        mode=execution_mode("distributed"),
         n_trials=6,
         n_seeds=120,
         chunk_size=20,
