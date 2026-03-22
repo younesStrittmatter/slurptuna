@@ -5,7 +5,13 @@ Optuna hyperparameter optimization on Slurm, without the boilerplate.
 ## Install
 
 ```bash
-uv sync
+pip install slurptuna
+```
+
+Or with uv:
+
+```bash
+uv add slurptuna
 ```
 
 ## Usage
@@ -61,8 +67,4 @@ you just wait for the result.
 
 ## Docs
 
-See the [docs/](docs/) folder, or run locally:
-
-```bash
-uv run mkdocs serve
-```
+[younesstrittmatter.github.io/surptuna](https://younesstrittmatter.github.io/surptuna)
