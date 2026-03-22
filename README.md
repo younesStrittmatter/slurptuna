@@ -39,9 +39,10 @@ from slurptuna import ExecutionMode, loss, optimize_run
 
 @loss(
     name="my_model",
+    description="Fit alpha/beta",
     parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
 )
-def my_model(params, seed, context):
+def my_model(params, seed):
     return abs(params["alpha"] - 0.3) + abs(params["beta"] - 0.7)
 
 if __name__ == "__main__":
@@ -55,6 +56,30 @@ if __name__ == "__main__":
     )
     print(result.best_params)
     # best params and best value are also written to runs/my_model_v0001/summary.json
+```
+
+### Parameter space
+
+Loss functions may accept either `(params, seed)` or `(params, seed, context)`.
+Use `context` only when you need framework-provided metadata such as `entry_id`
+from `optimize_entries`.
+
+Tuple shorthand is interpreted as `(min, max)`:
+
+```python
+parameter_space={"alpha": (0.0, 1.0)}
+```
+
+You can also use explicit specs when needed:
+
+```python
+from slurptuna import search_param
+
+parameter_space={
+    "alpha": search_param(range=(0.0, 1.0)),
+    "steps": search_param(range=(1, 10), dtype="int"),
+    "mode": search_param(allowed=["fast", "slow"]),
+}
 ```
 
 ### (2) Submit your script as a long-running controller job on Slurm:

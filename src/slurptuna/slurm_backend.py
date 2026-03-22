@@ -75,7 +75,7 @@ def submit_trial(
     trial_number: int,
     loss_module: str,
     loss_name: str,
-    params: dict[str, float],
+    params: dict[str, object],
     entry_id: str | None,
     seed_start: int,
     num_chunks: int,

@@ -20,6 +20,7 @@ PARTICIPANTS = {
 
 @loss(
     name="my_model",
+  description="Participant-wise fit",
     parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
 )
 def my_model(params, seed, context):

@@ -13,6 +13,7 @@ from pathlib import Path
 import optuna
 
 from .evaluate import normalize_seed_loss, summarize_rows
+from .params import ParamValue, suggest_param
 from .registry import LossDefinition, register_loss
 from .slurm_backend import SlurmConfig, submit_trial, wait_for_summary
 
@@ -26,7 +27,7 @@ class ExecutionMode(Enum):
 class OptimizeResult:
     loss_name: str
     best_value: float
-    best_params: dict[str, float]
+    best_params: dict[str, ParamValue]
     n_trials: int
     study_name: str
     run_dir: str | None = None
@@ -40,7 +41,7 @@ class MultiOptimizeResult:
     entries: list[str]
     results_by_entry: dict[str, OptimizeResult]
     best_values_by_entry: dict[str, float]
-    best_params_by_entry: dict[str, dict[str, float]]
+    best_params_by_entry: dict[str, dict[str, ParamValue]]
     mode: ExecutionMode = ExecutionMode.SINGLE
     run_dir: str | None = None
 
@@ -117,15 +118,12 @@ def _objective_local(
     active_seeds: list[int],
     entry_id: str | None,
 ) -> float:
-    params = {
-        name: trial.suggest_float(name, bounds[0], bounds[1])
-        for name, bounds in loss.parameter_space.items()
-    }
+    params = {name: suggest_param(trial, name, spec) for name, spec in loss.parameter_space.items()}
 
     rows = [
         normalize_seed_loss(
             seed,
-            loss.seed_loss_fn(
+            loss.evaluate_seed_loss(
                 params,
                 seed,
                 {
@@ -272,8 +270,8 @@ def optimize_run(
 
         def objective_slurm(trial: optuna.trial.Trial) -> float:
             params = {
-                name: trial.suggest_float(name, bounds[0], bounds[1])
-                for name, bounds in loss.parameter_space.items()
+                name: suggest_param(trial, name, spec)
+                for name, spec in loss.parameter_space.items()
             }
 
             last_error: Exception | None = None
@@ -335,7 +333,7 @@ def optimize_run(
                 "worker_parallelism": worker_parallelism,
                 "worker_time_limit_seconds": int(worker_time_limit.total_seconds()),
                 "best_value": float(study.best_value),
-                "best_params": {k: float(v) for k, v in study.best_params.items()},
+                "best_params": dict(study.best_params),
             },
             indent=2,
         ),
@@ -346,7 +344,7 @@ def optimize_run(
         json.dumps(
             {
                 "best_value": float(study.best_value),
-                "best_params": {k: float(v) for k, v in study.best_params.items()},
+                "best_params": dict(study.best_params),
             },
             indent=2,
         ),
@@ -356,7 +354,7 @@ def optimize_run(
     return OptimizeResult(
         loss_name=loss.name,
         best_value=float(study.best_value),
-        best_params={k: float(v) for k, v in study.best_params.items()},
+        best_params=dict(study.best_params),
         n_trials=n_trials,
         study_name=study.study_name,
         run_dir=str(run_dir),

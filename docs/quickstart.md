@@ -3,8 +3,9 @@
 ## 1. Write your loss function
 
 Create a Python script with a `@loss`-decorated function.
-The function receives `params` (the current candidate), `seed` (an integer),
-and `context` (a dict — usually empty for simple models).
+The function must accept `params` (the current candidate) and `seed` (an integer).
+It may also accept an optional `context` dict when you need framework-provided
+metadata.
 Return a scalar loss — lower is better.
 
 ```python
@@ -14,9 +15,10 @@ from slurptuna import ExecutionMode, loss, optimize_run
 
 @loss(
     name="my_model",
+    description="Fit alpha/beta",
     parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
 )
-def my_model(params, seed, context):
+def my_model(params, seed):
     # Replace this with your real model evaluation.
     return abs(params["alpha"] - 0.3) + abs(params["beta"] - 0.7)
 
@@ -32,6 +34,35 @@ if __name__ == "__main__":
     print(result.best_params)
     print(result.best_value)
 ```
+
+If you need entry-specific metadata, add a third argument. This is mainly for
+`optimize_entries`, which injects `entry_id` into `context`:
+
+```python
+def my_model(params, seed, context):
+    entry_id = context.get("entry_id")
+    ...
+```
+
+### Parameter space options
+  
+The tuple shorthand is interpreted as `(min, max)`:
+
+```python
+parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)}
+```
+
+You can use explicit specs when needed:
+
+```python
+from slurptuna import search_param
+parameter_space={
+  "alpha": search_param(range=(0.0, 1.0)),
+  "steps": search_param(range=(1, 10), dtype="int"),
+  "mode": search_param(allowed=["fast", "slow"]),
+}
+```
+
 
 ## 2. Create a controller script
 

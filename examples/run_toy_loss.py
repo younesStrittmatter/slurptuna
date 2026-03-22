@@ -12,8 +12,7 @@ TRUE = {"alpha": 0.3, "beta": 0.7}
     description="Recover two parameters",
     parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
 )
-def my_model(params, seed, context):
-    _ = context
+def my_model(params, seed):
     base = abs(params["alpha"] - TRUE["alpha"]) + abs(params["beta"] - TRUE["beta"])
     # Tiny seed-dependent term to mimic simulation noise and vary chunk summaries.
     jitter = (seed % 17) * 1e-4

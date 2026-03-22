@@ -60,7 +60,7 @@ def run_chunk(args: argparse.Namespace) -> None:
     def _eval_seed(seed: int) -> dict[str, object]:
         return normalize_seed_loss(
             seed,
-            loss.seed_loss_fn(
+            loss.evaluate_seed_loss(
                 params,
                 seed,
                 {
