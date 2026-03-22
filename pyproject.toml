@@ -1,6 +1,6 @@
 [project]
 name = "slurptuna"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Simple objective optimization orchestration for Slurm clusters"
 readme = "README.md"
 authors = [
@@ -26,6 +26,9 @@ dev = [
 testpaths = ["tests"]
 addopts = "-q"
 
+[tool.hatch.version]
+source = "vcs"
+
 [build-system]
-requires = ["uv_build>=0.10.11,<0.11.0"]
-build-backend = "uv_build"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
