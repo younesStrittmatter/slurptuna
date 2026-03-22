@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Tuple, Union
 
 import optuna
 
 ParamDType = Literal["float", "int", "str", "bool"]
-ParamValue = float | int | str | bool
-RangeSpec = tuple[float, float]
+ParamValue = Union[float, int, str, bool]
+RangeSpec = Tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class SearchParam:
     dtype: ParamDType | None = None
 
 
-ParamSpec = RangeSpec | SearchParam
+ParamSpec = Union[RangeSpec, SearchParam]
 
 
 def search_param(
