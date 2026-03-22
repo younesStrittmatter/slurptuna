@@ -19,6 +19,7 @@ slurptuna = "slurptuna.cli:main"
 dev = [
     "pytest>=8.3.0",
     "ruff>=0.6.0",
+    "mkdocs-material>=9.5",
 ]
 
 [tool.pytest.ini_options]

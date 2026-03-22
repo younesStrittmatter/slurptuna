@@ -1,0 +1,5 @@
+participant_id,alpha_true,beta_true
+p01,0.20,0.80
+p02,0.35,0.55
+p03,0.60,0.25
+p04,0.45,0.65

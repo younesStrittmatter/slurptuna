@@ -1,0 +1,27 @@
+site_name: slurptuna
+site_description: Optuna hyperparameter optimization on Slurm, without the boilerplate.
+repo_url: https://github.com/younesStrittmatter/slurptuna
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: teal
+    accent: cyan
+  features:
+    - navigation.instant
+    - navigation.sections
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Distributed Mode: distributed.md
+  - Participant-wise Fitting: participant-wise.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details

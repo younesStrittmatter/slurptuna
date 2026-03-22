@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import inspect
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 LossRaw = object
@@ -16,6 +17,7 @@ class LossDefinition:
     default_num_chunks: int = 10
     default_chunk_size: int = 100
     seed_start: int = 0
+    source_file: Optional[str] = field(default=None, compare=False, hash=False)
 
 
 _REGISTRY: dict[str, LossDefinition] = {}
@@ -38,6 +40,10 @@ def loss(
     seed_start: int = 0,
 ):
     def _wrap(fn: SeedLossFn) -> LossDefinition:
+        try:
+            src = inspect.getfile(fn)
+        except (TypeError, OSError):
+            src = None
         return register_loss(
             LossDefinition(
                 name=name,
@@ -47,6 +53,7 @@ def loss(
                 default_num_chunks=default_num_chunks,
                 default_chunk_size=default_chunk_size,
                 seed_start=seed_start,
+                source_file=src,
             )
         )
 

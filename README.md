@@ -1,14 +1,6 @@
 # slurptuna
 
-Simple optimization orchestration for cluster-style objective functions.
-
-## Why
-
-`slurptuna` keeps the user API tiny:
-
-- define a loss
-- call `optimize(loss)`
-- optionally return condition/participant-wise losses as dicts or lists
+Optuna hyperparameter optimization on Slurm, without the boilerplate.
 
 ## Install
 
@@ -16,43 +8,61 @@ Simple optimization orchestration for cluster-style objective functions.
 uv sync
 ```
 
-## Quick Start
+## Usage
+
+Write your loss function in a script:
 
 ```python
-from slurptuna import loss, optimize
+# my_model.py
+from datetime import timedelta
+from slurptuna import ExecutionMode, loss, optimize_run
 
 @loss(
-    name="participantwise_loss",
-    description="Example participant-wise objective",
-    parameter_space={
-        "alpha": (0.0, 1.0),
-        "beta": (0.0, 1.0),
-    },
-    default_num_chunks=1,
-    default_chunk_size=8,
+    name="my_model",
+    parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
 )
-def participantwise_loss(params, seed, context):
-    # Return scalar, dict, or list.
-    # Dict -> mean of values becomes total loss.
-    return {
-        "participant_01": abs(params["alpha"] - 0.2) + (seed % 3) * 0.01,
-        "participant_02": abs(params["beta"] - 0.8) + (seed % 5) * 0.01,
-    }
+def my_model(params, seed, context):
+    return abs(params["alpha"] - 0.3) + abs(params["beta"] - 0.7)
 
-result = optimize(participantwise_loss, n_trials=20)
-print(result.best_value, result.best_params)
+if __name__ == "__main__":
+    result = optimize_run(
+        my_model,
+        mode=ExecutionMode.DISTRIBUTED,
+        n_trials=20,
+        n_seeds=400,
+        chunk_size=20,
+        worker_time_limit=timedelta(minutes=30),
+    )
+    print(result.best_params)
+    # best params and best value are also written to runs/my_model_v0001/summary.json
 ```
 
-## CLI
+Submit your script as a long-running controller job on Slurm:
 
 ```bash
-uv run slurptuna --loss-module slurptuna.example_losses --loss-name toy_conditions --n-trials 20
+sbatch run_controller.sh my_model.py
 ```
 
-## Development
+`run_controller.sh`:
 
 ```bash
-uv sync --group dev
-uv run pytest
-uv run ruff check .
+#!/bin/bash
+#SBATCH --job-name=slurptuna-controller
+#SBATCH --time=04:00:00
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=4G
+
+source .venv/bin/activate
+python "$1"
+```
+
+The controller submits and monitors chunk/reduce array jobs automatically —
+you just wait for the result.
+
+## Docs
+
+See the [docs/](docs/) folder, or run locally:
+
+```bash
+uv run mkdocs serve
 ```

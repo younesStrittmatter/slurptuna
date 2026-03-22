@@ -8,3 +8,13 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Slurm output files
+logs/
+logs_slurm/
+
+# Run output files
+runs/
+
+# MkDocs build output
+site/
