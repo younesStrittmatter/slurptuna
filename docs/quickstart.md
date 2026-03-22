@@ -14,6 +14,7 @@ from slurptuna import ExecutionMode, loss, optimize_run
 
 @loss(
     name="my_model",
+    description="Fit alpha/beta",
     parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
 )
 def my_model(params, seed, context):
