@@ -32,13 +32,29 @@ def register_loss(loss: LossDefinition, *, overwrite: bool = True) -> LossDefini
 
 def loss(
     *,
-    name: str,
-    description: str,
-    parameter_space: dict[str, tuple[float, float]],
+    name: str | None = None,
+    description: str | None = None,
+    parameter_space: dict[str, tuple[float, float]] | None = None,
     default_num_chunks: int = 10,
     default_chunk_size: int = 100,
     seed_start: int = 0,
 ):
+    missing_fields: list[str] = []
+    if not name:
+        missing_fields.append("name")
+    if not description:
+        missing_fields.append("description")
+    if not parameter_space:
+        missing_fields.append("parameter_space")
+
+    if missing_fields:
+        missing_str = ", ".join(missing_fields)
+        raise ValueError(
+            "@loss requires non-empty metadata fields: "
+            f"{missing_str}. Example: "
+            "@loss(name='my_loss', description='...', parameter_space={'x': (0.0, 1.0)})"
+        )
+
     def _wrap(fn: SeedLossFn) -> LossDefinition:
         try:
             src = inspect.getfile(fn)

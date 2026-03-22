@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import pytest
 
 from slurptuna import ExecutionMode, loss, optimize, optimize_entries, optimize_run
 
@@ -91,3 +92,24 @@ def test_optimize_entries_returns_one_best_set_per_entry(tmp_path: Path):
     meta_2 = json.loads((run_dir_2 / "meta.json").read_text(encoding="utf-8"))
     assert meta_1["entry_id"] == "p01"
     assert meta_2["entry_id"] == "p02"
+
+
+@pytest.mark.parametrize(
+    "kwargs,missing",
+    [
+        ({"description": "desc", "parameter_space": {"x": (0.0, 1.0)}}, "name"),
+        ({"name": "my_loss", "parameter_space": {"x": (0.0, 1.0)}}, "description"),
+        ({"name": "my_loss", "description": "desc"}, "parameter_space"),
+        (
+            {"name": "", "description": "", "parameter_space": {}},
+            "name, description, parameter_space",
+        ),
+    ],
+)
+def test_loss_decorator_requires_metadata(kwargs, missing):
+    with pytest.raises(ValueError, match=f"non-empty metadata fields: {missing}"):
+
+        @loss(**kwargs)
+        def _invalid_loss(params, seed, context):
+            _ = (params, seed, context)
+            return 0.0
