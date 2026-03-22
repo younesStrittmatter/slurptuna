@@ -21,4 +21,8 @@ jobs:
 
       - run: uv sync --group dev
 
+      - run: python scripts/build_examples_docs.py
+
+      - run: python scripts/build_api_reference.py
+
       - run: uv run mkdocs gh-deploy --force

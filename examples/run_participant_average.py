@@ -11,12 +11,12 @@ PARTICIPANTS = {
 
 
 @loss(
-    name="participant_parallel_demo",
-    description="Fit shared alpha/beta across participants",
+    name="participant_average_demo",
+    description="Fit shared alpha/beta across participants by averaging losses",
     parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
 )
-def participant_parallel_demo(params, seed):
-    # Return dict => slurptuna averages participant losses per seed.
+def participant_average_demo(params, seed):
+    # Return dict with loss per participant => slurptuna averages them.
     # Seed-dependent term mimics per-seed simulation stochasticity.
     seed_term = (seed % 23) * 1e-4
     return {
@@ -28,7 +28,7 @@ def participant_parallel_demo(params, seed):
 if __name__ == "__main__":
     # LOCAL / single-mode run:
     # result = optimize_run(
-    #     participant_parallel_demo,
+    #     participant_average_demo,
     #     mode=ExecutionMode.SINGLE,
     #     n_trials=20,
     #     n_seeds=200,
@@ -36,7 +36,7 @@ if __name__ == "__main__":
 
     # DISTRIBUTED run with explicit seed/chunk controls:
     result = optimize_run(
-        participant_parallel_demo,
+        participant_average_demo,
         mode=ExecutionMode.DISTRIBUTED,
         n_trials=20,
         n_seeds=800,      # total seeds evaluated per trial

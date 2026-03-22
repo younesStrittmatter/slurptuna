@@ -1,4 +1,4 @@
-from .api import ExecutionMode, MultiOptimizeResult, OptimizeResult, optimize, optimize_entries, optimize_run
+from .api import ExecutionMode, MultiOptimizeResult, OptimizeResult, optimize_entries, optimize_run
 from .params import SearchParam, search_param
 from .registry import LossDefinition, get_registered_loss, get_registered_losses, loss, register_loss
 
@@ -11,7 +11,6 @@ __all__ = [
     "OptimizeResult",
     "MultiOptimizeResult",
     "ExecutionMode",
-    "optimize",
     "optimize_run",
     "optimize_entries",
     "SearchParam",

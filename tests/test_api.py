@@ -2,15 +2,13 @@ from pathlib import Path
 import json
 import pytest
 
-from slurptuna import ExecutionMode, loss, optimize, optimize_entries, optimize_run, search_param
+from slurptuna import ExecutionMode, loss, optimize_entries, optimize_run, search_param
 
 
 @loss(
     name="toy_conditions",
     description="Toy loss over two conditions",
     parameter_space={"alpha": (0.0, 1.0), "beta": (0.0, 1.0)},
-    default_num_chunks=1,
-    default_chunk_size=8,
 )
 def toy_conditions(params, seed, context):
     return {
@@ -20,7 +18,7 @@ def toy_conditions(params, seed, context):
 
 
 def test_optimize_toy_loss_runs():
-    result = optimize(toy_conditions, n_trials=2, seeds=[0, 1, 2], random_seed=7)
+    result = optimize_run(toy_conditions, n_trials=2, seeds=[0, 1, 2], random_seed=7)
     assert result.loss_name == "toy_conditions"
     assert result.n_trials == 2
     assert isinstance(result.best_value, float)
@@ -32,15 +30,13 @@ def test_optimize_toy_loss_runs():
     name="toy_no_context",
     description="Toy loss without context argument",
     parameter_space={"alpha": (0.0, 1.0)},
-    default_num_chunks=1,
-    default_chunk_size=4,
 )
 def toy_no_context(params, seed):
     return abs(params["alpha"] - 0.4) + (seed % 2) * 0.01
 
 
 def test_optimize_allows_loss_without_context_argument():
-    result = optimize(toy_no_context, n_trials=3, seeds=[0, 1], random_seed=19)
+    result = optimize_run(toy_no_context, n_trials=3, seeds=[0, 1], random_seed=19)
     assert result.loss_name == "toy_no_context"
     assert 0.0 <= float(result.best_params["alpha"]) <= 1.0
 
@@ -49,8 +45,6 @@ def test_optimize_allows_loss_without_context_argument():
     name="toy_keyword_context",
     description="Toy loss with keyword-only context argument",
     parameter_space={"alpha": (0.0, 1.0)},
-    default_num_chunks=1,
-    default_chunk_size=4,
 )
 def toy_keyword_context(params, seed, *, context):
     _ = context
@@ -58,7 +52,7 @@ def toy_keyword_context(params, seed, *, context):
 
 
 def test_optimize_allows_keyword_only_context_argument():
-    result = optimize(toy_keyword_context, n_trials=3, seeds=[0, 1], random_seed=23)
+    result = optimize_run(toy_keyword_context, n_trials=3, seeds=[0, 1], random_seed=23)
     assert result.loss_name == "toy_keyword_context"
     assert 0.0 <= float(result.best_params["alpha"]) <= 1.0
 
@@ -85,8 +79,6 @@ def test_optimize_run_local_creates_run_dir(tmp_path: Path):
     name="toy_entries",
     description="Toy loss with independent entry targets",
     parameter_space={"alpha": (0.0, 1.0)},
-    default_num_chunks=1,
-    default_chunk_size=4,
 )
 def toy_entries(params, seed, context):
     _ = seed
@@ -137,8 +129,6 @@ def test_optimize_entries_returns_one_best_set_per_entry(tmp_path: Path):
         "steps": search_param(range=(1, 3), dtype="int"),
         "mode": search_param(allowed=["fast", "slow"]),
     },
-    default_num_chunks=1,
-    default_chunk_size=4,
 )
 def toy_mixed_param_specs(params, seed, context):
     _ = (seed, context)
@@ -149,7 +139,7 @@ def toy_mixed_param_specs(params, seed, context):
 
 
 def test_optimize_supports_range_allowed_and_dtype():
-    result = optimize(toy_mixed_param_specs, n_trials=4, seeds=[0, 1], random_seed=13)
+    result = optimize_run(toy_mixed_param_specs, n_trials=4, seeds=[0, 1], random_seed=13)
     assert 0.0 <= float(result.best_params["alpha"]) <= 1.0
     assert result.best_params["steps"] in {1, 2, 3}
     assert result.best_params["mode"] in {"fast", "slow"}

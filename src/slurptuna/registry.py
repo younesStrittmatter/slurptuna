@@ -44,8 +44,6 @@ class LossDefinition:
     parameter_space: dict[str, SearchParam]
     seed_loss_fn: SeedLossFn
     seed_loss_call_mode: SeedLossCallMode
-    default_num_chunks: int = 10
-    default_chunk_size: int = 100
     seed_start: int = 0
     source_file: Optional[str] = field(default=None, compare=False, hash=False)
 
@@ -77,10 +75,37 @@ def loss(
     name: str | None = None,
     description: str | None = None,
     parameter_space: dict[str, ParamSpec] | None = None,
-    default_num_chunks: int = 10,
-    default_chunk_size: int = 100,
     seed_start: int = 0,
 ):
+    """Decorator to define a loss function for hyperparameter optimization.
+
+    The decorated function should accept `params` (dict of hyperparameters), `seed` (int),
+    and optionally a `context` dict. It should return either:
+    - A scalar loss value (float)
+    - A dict of scalar losses (will be averaged across entries for shared optimization)
+
+    Args:
+        name: Unique identifier for this loss. Required.
+        description: Human-readable description of what this loss represents. Required.
+        parameter_space: Dict mapping parameter names to search specs. Required.
+            Specs can be tuples (min, max) for continuous ranges or SearchParam objects
+            for more control over type (int/categorical) and bounds.
+            Example: {"alpha": (0.0, 1.0), "lr": search_param(range=(1e-4, 1e-2), dtype="log")}
+        seed_start: Starting seed number for this loss. Default 0.
+
+    Returns:
+        The decorated function as a LossDefinition ready for optimize_run() or optimize_entries().
+
+    Example:
+        @loss(
+            name="my_model_loss",
+            description="Fit model parameters to training data",
+            parameter_space={"learning_rate": (1e-4, 1e-2), "batch_size": search_param(range=(8, 256), dtype="int")}
+        )
+        def my_model_loss(params, seed, context):
+            # ... model training logic ...
+            return mean_squared_error
+    """
     missing_fields: list[str] = []
     if not name:
         missing_fields.append("name")
@@ -110,8 +135,6 @@ def loss(
                 parameter_space=normalize_parameter_space(parameter_space),
                 seed_loss_fn=fn,
                 seed_loss_call_mode=call_mode,
-                default_num_chunks=default_num_chunks,
-                default_chunk_size=default_chunk_size,
                 seed_start=seed_start,
                 source_file=src,
             )

@@ -18,3 +18,7 @@ runs/
 
 # MkDocs build output
 site/
+
+# Auto-generated documentation
+docs/examples.md
+docs/api.md
