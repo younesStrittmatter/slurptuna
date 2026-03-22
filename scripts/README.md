@@ -7,7 +7,7 @@ This directory contains scripts for automatically generating slurptuna documenta
 The documentation build system includes two automation scripts:
 
 1. **`build_examples_docs.py`** - Parses example files and auto-generates `docs/examples.md`
-2. **`build_api_reference.py`** - Ensures API Reference and Examples are in mkdocs navigation
+2. **`build_api_reference.py`** - Discovers modules in `src/slurptuna` and auto-generates `docs/api.md`
 
 Plus the Makefile orchestrates the full build process.
 
@@ -28,27 +28,27 @@ The `build_examples_docs.py` script:
    - Both local and distributed code examples
    - Links back to source files
 
-### Navigation Update
+### API Reference Generation
 
 The `build_api_reference.py` script:
 
-1. Updates `mkdocs.yml` to ensure both Examples and API Reference are in the nav
-2. Idempotent - won't add duplicates if already present
-3. Preserves existing navigation structure
+1. Scans `src/slurptuna/*.py` to discover package modules dynamically
+2. Generates `docs/api.md` with mkdocstrings directives for each discovered module
+3. Keeps API docs in sync with the codebase without hardcoded symbol lists
 
 ### Building Documentation
 
 ```bash
-# Generate examples + update nav + build mkdocs site
+# Generate examples + API reference + build mkdocs site
 make docs-build
 
-# Generate examples + update nav + serve live preview
+# Generate examples + API reference + serve live preview
 make docs-serve
 
 # Just generate examples.md (without full build)
 python scripts/build_examples_docs.py
 
-# Just update nav (without full build)
+# Just regenerate API reference (without full build)
 python scripts/build_api_reference.py
 ```
 
@@ -103,10 +103,10 @@ if __name__ == "__main__":
 - Indentation is handled automatically during code block extraction
 - Examples are sorted alphabetically and categorized for better organization
 - The generated `examples.md` includes usage instructions and result interpretation
-- Navigation updates preserve YAML formatting and existing structure
+- API module discovery is automatic and based on files under `src/slurptuna`
 
 ## Files
 
 - `build_examples_docs.py` - Generates examples.md from example files
-- `build_api_reference.py` - Ensures documentation pages are in mkdocs nav
+- `build_api_reference.py` - Generates api.md from discovered source modules
 - `../Makefile` - Build orchestration (in project root)
