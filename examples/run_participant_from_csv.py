@@ -4,7 +4,8 @@ import csv
 from datetime import timedelta
 from pathlib import Path
 
-from slurptuna import ExecutionMode, loss, optimize_entries
+from slurptuna import execution_mode, loss
+from slurptuna.api import optimize_entries
 
 
 DATA_CSV = Path(__file__).with_name("participant_truth.csv")
@@ -48,7 +49,7 @@ if __name__ == "__main__":
     # result = optimize_entries(
     #     participant_from_csv_demo,
     #     entry_ids=PARTICIPANTS.keys(),
-    #     mode=ExecutionMode.SINGLE,
+    #     mode=execution_mode("single"),
     #     n_trials=20,
     #     n_seeds=200,
     #     run_name_prefix="participant_from_csv_single",
@@ -58,7 +59,7 @@ if __name__ == "__main__":
     result = optimize_entries(
         participant_from_csv_demo,
         entry_ids=PARTICIPANTS.keys(),
-        mode=ExecutionMode.DISTRIBUTED,
+        mode=execution_mode("distributed"),
         n_trials=4,
         n_seeds=80,
         chunk_size=20,

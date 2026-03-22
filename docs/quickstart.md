@@ -11,7 +11,7 @@ Return a scalar loss — lower is better.
 ```python
 # my_model.py
 from datetime import timedelta
-from slurptuna import ExecutionMode, loss, optimize_run
+from slurptuna import execution_mode, loss, optimize_run
 
 @loss(
     name="my_model",
@@ -25,7 +25,7 @@ def my_model(params, seed):
 if __name__ == "__main__":
     result = optimize_run(
         my_model,
-        mode=ExecutionMode.DISTRIBUTED,
+    mode=execution_mode("distributed"),
         n_trials=20,
         n_seeds=400,
         chunk_size=20,
@@ -35,8 +35,7 @@ if __name__ == "__main__":
     print(result.best_value)
 ```
 
-If you need entry-specific metadata, add a third argument. This is mainly for
-`optimize_entries`, which injects `entry_id` into `context`:
+If you need framework-provided metadata, add a third argument:
 
 ```python
 def my_model(params, seed, context):
@@ -115,12 +114,12 @@ runs/my_model_v0001/
 
 ## Test locally first
 
-Use `ExecutionMode.SINGLE` to run everything in-process before submitting:
+Use `execution_mode("single")` to run everything in-process before submitting:
 
 ```python
 result = optimize_run(
     my_model,
-    mode=ExecutionMode.SINGLE,
+    mode=execution_mode("single"),
     n_trials=5,
     n_seeds=20,
 )

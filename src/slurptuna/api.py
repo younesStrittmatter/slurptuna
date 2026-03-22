@@ -46,18 +46,32 @@ class MultiOptimizeResult:
     run_dir: str | None = None
 
 
+def execution_mode(mode: str) -> ExecutionMode:
+    """Validate and normalize an execution mode.
+
+    Args:
+        mode: One of the supported strings: `"single"` or `"distributed"`.
+
+    Returns:
+        The corresponding `ExecutionMode` enum value.
+
+    Raises:
+        ValueError: If `mode` is not one of the supported values.
+    """
+    normalized = str(mode).lower()
+    if normalized == "single":
+        return ExecutionMode.SINGLE
+    if normalized == "distributed":
+        return ExecutionMode.DISTRIBUTED
+    raise ValueError("mode must be one of: single, distributed")
+
+
 def _coerce_mode(mode: ExecutionMode | str) -> ExecutionMode:
     if isinstance(mode, ExecutionMode):
         return mode
-    aliases = {
-        "single": ExecutionMode.SINGLE,
-        "local": ExecutionMode.SINGLE,
-        "distributed": ExecutionMode.DISTRIBUTED,
-        "slurm": ExecutionMode.DISTRIBUTED,
-    }
     try:
-        return aliases[str(mode).lower()]
-    except KeyError as exc:
+        return execution_mode(mode)
+    except ValueError as exc:
         raise ValueError("mode must be one of: single, distributed") from exc
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from slurptuna import ExecutionMode, loss, optimize_run
+from slurptuna import execution_mode, loss, optimize_run
 
 TRUE = {"alpha": 0.3, "beta": 0.7}
 
@@ -23,7 +23,7 @@ if __name__ == "__main__":
     # LOCAL / single-mode example.
     # result = optimize_run(
     #     my_model,
-    #     mode=ExecutionMode.SINGLE,
+    #     mode=execution_mode("single"),
     #     n_trials=20,
     #     n_seeds=200,
     #     run_name="toy_single_local",
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     # DISTRIBUTED example (Slurm array + reduce jobs).
     result = optimize_run(
         my_model,
-        mode=ExecutionMode.DISTRIBUTED,
+        mode=execution_mode("distributed"),
         n_trials=6,
         n_seeds=120,
         chunk_size=20,

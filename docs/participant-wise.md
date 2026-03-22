@@ -10,7 +10,7 @@ Each entry gets its own Optuna study. Studies run concurrently via
 
 ```python
 from datetime import timedelta
-from slurptuna import ExecutionMode, loss, optimize_entries
+from slurptuna import execution_mode, loss, optimize_entries
 
 PARTICIPANTS = {
     "p01": {"alpha": 0.20, "beta": 0.80},
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     result = optimize_entries(
         my_model,
         entry_ids=PARTICIPANTS.keys(),
-        mode=ExecutionMode.DISTRIBUTED,
+      mode=execution_mode("distributed"),
         n_trials=20,
         n_seeds=400,
         chunk_size=20,
