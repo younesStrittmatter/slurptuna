@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from slurptuna.evaluate import normalize_seed_loss, summarize_rows
 
 
