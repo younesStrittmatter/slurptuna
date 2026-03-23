@@ -111,6 +111,14 @@ python "$1"
 The controller submits and monitors chunk/reduce array jobs automatically —
 you just wait for the result.
 
+### Dynamic script styles (`sys.argv`) in distributed mode
+
+`slurptuna` forwards the launcher's `sys.argv` to worker imports by default, so
+argv-driven dynamic loss naming works across Slurm jobs.
+
+Important: the loss still must be registered when the module is imported. A loss
+defined only inside `if __name__ == "__main__":` is not visible to workers.
+
 ## Performance
 
 On a real Slurm cluster (`short` QoS, 4-CPU tasks), slurptuna scales seed throughput dramatically:

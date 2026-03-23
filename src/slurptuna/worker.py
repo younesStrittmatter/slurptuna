@@ -5,12 +5,13 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import multiprocessing
 import os
+import sys
 from pathlib import Path
 
 import importlib.util
 
 from .evaluate import normalize_seed_loss, summarize_rows
-from .registry import get_registered_loss
+from .registry import get_registered_loss, get_registered_losses
 
 
 _CHUNK_LOSS = None
@@ -31,16 +32,25 @@ def _chunk_eval_seed(seed: int) -> dict[str, object]:
     )
 
 
-def _import_loss_module(module_str: str) -> None:
+def _import_loss_module(module_str: str, module_argv: list[str] | None = None) -> None:
     """Import by module name or by file path (ends in .py)."""
-    if module_str.endswith(".py"):
-        spec = importlib.util.spec_from_file_location("_slurptuna_loss", module_str)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Cannot load loss module from file: {module_str}")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
-    else:
-        __import__(module_str)
+    original_argv: list[str] | None = None
+    if module_argv is not None:
+        original_argv = list(sys.argv)
+        sys.argv = list(module_argv)
+
+    try:
+        if module_str.endswith(".py"):
+            spec = importlib.util.spec_from_file_location("_slurptuna_loss", module_str)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Cannot load loss module from file: {module_str}")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        else:
+            __import__(module_str)
+    finally:
+        if original_argv is not None:
+            sys.argv = original_argv
 
 
 def _chunk_parser() -> argparse.ArgumentParser:
@@ -48,6 +58,7 @@ def _chunk_parser() -> argparse.ArgumentParser:
     p.add_argument("--loss-module", required=True)
     p.add_argument("--loss-name", required=True)
     p.add_argument("--params-json", required=True, type=Path)
+    p.add_argument("--module-argv-json", type=Path)
     p.add_argument("--out-dir", required=True, type=Path)
     p.add_argument("--seed-start", required=True, type=int)
     p.add_argument("--chunk-size", required=True, type=int)
@@ -66,8 +77,27 @@ def _reduce_parser() -> argparse.ArgumentParser:
 
 
 def run_chunk(args: argparse.Namespace) -> None:
-    _import_loss_module(args.loss_module)
-    loss = get_registered_loss(args.loss_name)
+    module_argv: list[str] | None = None
+    if args.module_argv_json is not None:
+        raw_module_argv = json.loads(args.module_argv_json.read_text(encoding="utf-8"))
+        if not isinstance(raw_module_argv, list):
+            raise TypeError("--module-argv-json must contain a JSON array")
+        module_argv = [str(item) for item in raw_module_argv]
+
+    _import_loss_module(args.loss_module, module_argv=module_argv)
+    try:
+        loss = get_registered_loss(args.loss_name)
+    except KeyError as exc:
+        available_losses = sorted(loss_def.name for loss_def in get_registered_losses())
+        available_str = ", ".join(available_losses) if available_losses else "<none>"
+        raise RuntimeError(
+            "Requested loss was not registered in worker process after importing the loss module. "
+            f"requested={args.loss_name!r}, module={args.loss_module!r}, "
+            f"forwarded_argv={module_argv!r}, available=[{available_str}]. "
+            "For distributed mode, ensure @loss registration happens at module import time (not only inside "
+            "if __name__ == '__main__'). If your loss name depends on sys.argv, keep "
+            "forward_sys_argv_to_workers=True (default)."
+        ) from exc
 
     task_id = int(os.environ.get("SLURM_ARRAY_TASK_ID", "0"))
     start = args.seed_start + (task_id * args.chunk_size)

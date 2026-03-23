@@ -205,6 +205,7 @@ def optimize_run(
     trial_retry_attempts: int = 1,
     fail_on_chunk_error: bool = True,
     use_processes: bool = False,
+    forward_sys_argv_to_workers: bool = True,
 ) -> OptimizeResult:
     """Optimize hyperparameters for a single shared fit.
 
@@ -245,6 +246,9 @@ def optimize_run(
             negligible (roughly >10 ms per seed). For numpy/scipy-heavy losses, threads are usually
             sufficient because numpy already releases the GIL. For DISTRIBUTED mode, each Slurm task
             is already a separate process, so this controls parallelism within each task.
+        forward_sys_argv_to_workers: Forward the launcher's `sys.argv` into distributed worker
+            module import context so loss modules that read argv at import time behave consistently.
+            Default True.
 
     Returns:
         OptimizeResult with best_value, best_params, study metadata, and run_dir path.
@@ -367,6 +371,7 @@ def optimize_run(
 
         project_root = Path.cwd()
         python_executable = sys.executable
+        worker_module_argv = list(sys.argv) if forward_sys_argv_to_workers else None
 
         def objective_slurm(trial: optuna.trial.Trial) -> float:
             params = {
@@ -391,6 +396,7 @@ def optimize_run(
                     use_processes=use_processes,
                     config=slurm_cfg,
                     python_executable=python_executable,
+                    module_argv=worker_module_argv,
                 )
 
                 try:
@@ -499,6 +505,7 @@ def optimize_entries(
     fail_on_chunk_error: bool = True,
     use_processes: bool = False,
     mem_per_cpu: str = "2G",
+    forward_sys_argv_to_workers: bool = True,
 ) -> MultiOptimizeResult:
     """Optimize independent fits for each entry, returning per-entry best parameters.
 
@@ -537,6 +544,8 @@ def optimize_entries(
             Default False (threads). See optimize_run() for full details on when to prefer processes
             over threads.
         mem_per_cpu: Memory per CPU for Slurm chunk tasks (DISTRIBUTED only). Default "2G".
+        forward_sys_argv_to_workers: Forward the launcher's `sys.argv` into distributed worker
+            module import context. Default True.
 
     Returns:
         MultiOptimizeResult containing:
@@ -594,6 +603,7 @@ def optimize_entries(
             fail_on_chunk_error=fail_on_chunk_error,
             use_processes=use_processes,
             mem_per_cpu=mem_per_cpu,
+            forward_sys_argv_to_workers=forward_sys_argv_to_workers,
         )
         return entry, result
 

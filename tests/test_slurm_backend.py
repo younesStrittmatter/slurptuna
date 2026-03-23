@@ -125,3 +125,35 @@ def test_submit_trial_retries_without_qos_when_rejected(tmp_path: Path, monkeypa
     assert "--qos=short" not in calls[1]
     assert "--qos=short" in calls[2]
     assert "--qos=short" not in calls[3]
+
+
+def test_submit_trial_passes_module_argv_json_to_chunk_worker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    calls: list[list[str]] = []
+
+    def fake_run_cmd(cmd: list[str]) -> str:
+        calls.append(cmd)
+        return "789"
+
+    monkeypatch.setattr("slurptuna.slurm_backend._run_cmd", fake_run_cmd)
+
+    config = SlurmConfig(qos="short")
+    submit_trial(
+        project_root=tmp_path,
+        run_dir=tmp_path,
+        trial_number=2,
+        loss_module="tests.test_api",
+        loss_name="toy_conditions",
+        params={"alpha": 0.3},
+        entry_id=None,
+        seed_start=0,
+        num_chunks=1,
+        chunk_size=1,
+        worker_parallelism=1,
+        use_processes=False,
+        config=config,
+        python_executable="python",
+        module_argv=["fit.py", "revaluation"],
+    )
+
+    assert len(calls) == 2
+    assert "--module-argv-json" in " ".join(calls[0])

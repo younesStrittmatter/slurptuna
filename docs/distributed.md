@@ -52,6 +52,25 @@ Defaults in distributed mode:
 - `worker_time_limit=timedelta(hours=2)`
 - `slurm_qos="short"`
 
+## Dynamic Losses And argv
+
+Distributed workers import your loss module in a separate process and look up the
+requested loss by name.
+
+What works:
+- Dynamic loss names derived from `sys.argv` at module import time.
+- Multiple runs of the same script with different argv values.
+- Repeated launches do not leak argv state across runs (worker import temporarily
+    overrides argv and restores it immediately after import).
+
+What does not work:
+- Registering the only needed `@loss` inside `if __name__ == "__main__":`.
+    Worker imports do not execute that block.
+
+When using `optimize_run(..., mode=execution_mode("distributed"))`, slurptuna
+forwards the launcher argv to workers by default (`forward_sys_argv_to_workers=True`).
+Disable this only if you explicitly do not want argv-dependent registration.
+
 QoS names are cluster-specific. If your cluster does not define `short`, set
 `slurm_qos` to the local value or `None`. Slurptuna retries once without
 `--qos` if submission fails with the configured QoS.
