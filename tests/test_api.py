@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import sys
 from types import SimpleNamespace
 import pytest
 
@@ -131,6 +132,7 @@ def test_optimize_run_distributed_uses_default_slurm_qos_and_time_limit(
 
     def fake_submit_trial(**kwargs):
         captured["config"] = kwargs["config"]
+        captured["module_argv"] = kwargs["module_argv"]
         trial_dir = Path(kwargs["run_dir"]) / "trials" / f"trial_{kwargs['trial_number']:05d}"
         return SimpleNamespace(
             summary_path=trial_dir / "summary.json",
@@ -164,6 +166,47 @@ def test_optimize_run_distributed_uses_default_slurm_qos_and_time_limit(
     assert result.best_value == pytest.approx(0.111)
     assert captured["config"].qos == "short"
     assert int(captured["config"].worker_time_limit.total_seconds()) == 7200
+    assert captured["module_argv"] == list(sys.argv)
+
+
+def test_optimize_run_distributed_can_disable_argv_forwarding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    captured = {}
+
+    def fake_submit_trial(**kwargs):
+        captured["module_argv"] = kwargs["module_argv"]
+        trial_dir = Path(kwargs["run_dir"]) / "trials" / f"trial_{kwargs['trial_number']:05d}"
+        return SimpleNamespace(
+            summary_path=trial_dir / "summary.json",
+            chunk_job_id="chunk-3",
+            reduce_job_id="reduce-3",
+        )
+
+    def fake_wait_for_summary(*args, **kwargs):
+        return {
+            "n_seeds": 2,
+            "mean_total_loss": 0.222,
+        }
+
+    monkeypatch.setattr("slurptuna.api.submit_trial", fake_submit_trial)
+    monkeypatch.setattr("slurptuna.api.wait_for_summary", fake_wait_for_summary)
+
+    result = optimize_run(
+        toy_conditions,
+        mode=execution_mode("distributed"),
+        n_trials=1,
+        seeds=[0, 1],
+        chunk_size=1,
+        num_chunks=2,
+        random_seed=7,
+        run_root=tmp_path,
+        run_name="distributed_disable_argv_forwarding",
+        loss_module="tests.test_api",
+        forward_sys_argv_to_workers=False,
+    )
+
+    assert result.mode.value == "distributed"
+    assert result.best_value == pytest.approx(0.222)
+    assert captured["module_argv"] is None
 
 
 @loss(

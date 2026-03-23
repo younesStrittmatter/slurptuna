@@ -147,6 +147,7 @@ def submit_trial(
     use_processes: bool,
     config: SlurmConfig,
     python_executable: str,
+    module_argv: list[str] | None = None,
 ) -> SubmittedTrial:
     trial_dir = run_dir / "trials" / f"trial_{trial_number:05d}"
     chunks_dir = trial_dir / "chunks"
@@ -157,6 +158,11 @@ def submit_trial(
     params_json = trial_dir / "params.json"
     params_json.write_text(json.dumps(params, sort_keys=True), encoding="utf-8")
 
+    module_argv_json: Path | None = None
+    if module_argv is not None:
+        module_argv_json = trial_dir / "module_argv.json"
+        module_argv_json.write_text(json.dumps(module_argv), encoding="utf-8")
+
     summary_path = trial_dir / "summary.json"
     slurm_time_limit = _to_slurm_time_limit(config.worker_time_limit)
 
@@ -166,6 +172,12 @@ def submit_trial(
         f"--loss-module {shlex.quote(loss_module)} "
         f"--loss-name {shlex.quote(loss_name)} "
         f"--params-json {shlex.quote(str(params_json))} "
+        + (
+            f"--module-argv-json {shlex.quote(str(module_argv_json))} "
+            if module_argv_json is not None
+            else ""
+        )
+        +
         f"--out-dir {shlex.quote(str(chunks_dir))} "
         f"--seed-start {seed_start} "
         f"--chunk-size {chunk_size} "
