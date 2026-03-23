@@ -52,11 +52,19 @@ if __name__ == "__main__":
         n_trials=20,
         n_seeds=400,
         chunk_size=20,
-        worker_time_limit=timedelta(minutes=30),
+        worker_time_limit=timedelta(hours=2),
+        slurm_qos="short",
     )
     print(result.best_params)
     # best params and best value are also written to runs/my_model_v0001/summary.json
 ```
+
+Distributed defaults are tuned for common short-queue clusters:
+- `worker_time_limit=timedelta(hours=2)`
+- `slurm_qos="short"`
+
+If your cluster uses a different QoS (or none), set `slurm_qos` accordingly. `slurptuna`
+automatically retries submission without `--qos` if the specified QoS is rejected.
 
 ### Parameter space
 
@@ -102,6 +110,20 @@ python "$1"
 
 The controller submits and monitors chunk/reduce array jobs automatically —
 you just wait for the result.
+
+## Performance
+
+On a real Slurm cluster (`short` QoS, 4-CPU tasks), slurptuna scales seed throughput dramatically:
+
+| Case | Seeds | Wall time | Seeds/s | Speedup |
+|---|---|---|---|---|
+| single, 1 worker (baseline) | 100,000 | 84 s | 1,191 | 1× |
+| single, 4 processes | 400,000 | 89 s | 4,494 | 3.8× |
+| **distributed, 100 tasks × 4 processes** | **40,000,000** | **399 s** | **100,251** | **84×** |
+
+The distributed case evaluates 40 million seeds in ~7 minutes — work that would take ~9 hours sequentially.
+
+See [`benchmark/`](benchmark/) for the full benchmark setup and loss function.
 
 ## Docs
 

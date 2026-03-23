@@ -1,8 +1,10 @@
 from pathlib import Path
 import json
+from types import SimpleNamespace
 import pytest
 
 from slurptuna import execution_mode, loss, optimize_entries, optimize_run, search_param
+from slurptuna.slurm_backend import ChunkExecutionError
 
 
 @loss(
@@ -73,6 +75,93 @@ def test_optimize_run_local_creates_run_dir(tmp_path: Path):
     assert run_dir.exists()
     assert (run_dir / "optuna.db").exists()
     assert (run_dir / "meta.json").exists()
+
+
+def test_optimize_run_distributed_retries_chunk_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    submit_calls: list[int] = []
+    wait_calls: list[int] = []
+
+    def fake_submit_trial(**kwargs):
+        trial_dir = Path(kwargs["run_dir"]) / "trials" / f"trial_{kwargs['trial_number']:05d}"
+        submit_calls.append(kwargs["trial_number"])
+        return SimpleNamespace(
+            summary_path=trial_dir / "summary.json",
+            chunk_job_id="chunk-1",
+            reduce_job_id="reduce-1",
+        )
+
+    def fake_wait_for_summary(*args, **kwargs):
+        wait_calls.append(1)
+        if len(wait_calls) == 1:
+            raise ChunkExecutionError("first attempt failed")
+        return {
+            "n_seeds": 2,
+            "mean_total_loss": 0.123,
+        }
+
+    monkeypatch.setattr("slurptuna.api.submit_trial", fake_submit_trial)
+    monkeypatch.setattr("slurptuna.api.wait_for_summary", fake_wait_for_summary)
+
+    result = optimize_run(
+        toy_conditions,
+        mode=execution_mode("distributed"),
+        n_trials=1,
+        seeds=[0, 1],
+        chunk_size=1,
+        num_chunks=2,
+        random_seed=7,
+        run_root=tmp_path,
+        run_name="distributed_retry",
+        loss_module="tests.test_api",
+        trial_retry_attempts=1,
+    )
+
+    assert result.mode.value == "distributed"
+    assert result.best_value == pytest.approx(0.123)
+    assert len(submit_calls) == 2
+    assert len(wait_calls) == 2
+
+
+def test_optimize_run_distributed_uses_default_slurm_qos_and_time_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    captured = {}
+
+    def fake_submit_trial(**kwargs):
+        captured["config"] = kwargs["config"]
+        trial_dir = Path(kwargs["run_dir"]) / "trials" / f"trial_{kwargs['trial_number']:05d}"
+        return SimpleNamespace(
+            summary_path=trial_dir / "summary.json",
+            chunk_job_id="chunk-2",
+            reduce_job_id="reduce-2",
+        )
+
+    def fake_wait_for_summary(*args, **kwargs):
+        return {
+            "n_seeds": 2,
+            "mean_total_loss": 0.111,
+        }
+
+    monkeypatch.setattr("slurptuna.api.submit_trial", fake_submit_trial)
+    monkeypatch.setattr("slurptuna.api.wait_for_summary", fake_wait_for_summary)
+
+    result = optimize_run(
+        toy_conditions,
+        mode=execution_mode("distributed"),
+        n_trials=1,
+        seeds=[0, 1],
+        chunk_size=1,
+        num_chunks=2,
+        random_seed=7,
+        run_root=tmp_path,
+        run_name="distributed_defaults",
+        loss_module="tests.test_api",
+    )
+
+    assert result.mode.value == "distributed"
+    assert result.best_value == pytest.approx(0.111)
+    assert captured["config"].qos == "short"
+    assert int(captured["config"].worker_time_limit.total_seconds()) == 7200
 
 
 @loss(

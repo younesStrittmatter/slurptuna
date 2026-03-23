@@ -26,6 +26,7 @@ The controller sits in a polling loop between steps 4 and 5.
 | `worker_parallelism` | Threads per chunk task |
 | `cpus_per_task` | CPUs allocated to each chunk task on Slurm |
 | `worker_time_limit` | Wall time for chunk/reduce jobs |
+| `slurm_qos` | Optional Slurm QoS passed as `--qos` (default `"short"`) |
 | `array_parallelism_limit` | Max simultaneous array tasks (`--array %N`) |
 | `trial_retry_attempts` | Retries on timeout before failing a trial |
 
@@ -41,10 +42,19 @@ result = optimize_run(
     max_concurrent_trials=4,
     worker_parallelism=4,
     cpus_per_task=4,
-    worker_time_limit=timedelta(minutes=30),
+    worker_time_limit=timedelta(hours=2),
+    slurm_qos="short",
     array_parallelism_limit=80,
 )
 ```
+
+Defaults in distributed mode:
+- `worker_time_limit=timedelta(hours=2)`
+- `slurm_qos="short"`
+
+QoS names are cluster-specific. If your cluster does not define `short`, set
+`slurm_qos` to the local value or `None`. Slurptuna retries once without
+`--qos` if submission fails with the configured QoS.
 
 ## Run naming and versioning
 
@@ -68,3 +78,18 @@ Existing trial outputs are reused automatically — only missing chunks are resu
 - **Timeout**: a trial that times out is retried up to `trial_retry_attempts` times.
 - **Partial completion**: existing `chunk_XXXXX.json` files are reused on retry.
 - **Resume**: re-running with the same `run_name` picks up from the existing Optuna DB.
+
+## Performance
+
+Benchmarked on a real Slurm cluster (`short` QoS, 4-CPU tasks):
+
+| Case | Mode | Seeds | Wall time | Seeds/s | Speedup |
+|---|---|---|---|---|---|
+| 1 worker (baseline) | single | 100,000 | 84 s | 1,191 | 1× |
+| 4 processes | single | 400,000 | 89 s | 4,494 | 3.8× |
+| **100 tasks × 4 processes** | **distributed** | **40,000,000** | **399 s** | **100,251** | **84×** |
+
+The distributed case evaluates 40 million seeds in ~7 minutes — work that would take ~9 hours sequentially.
+The 84× speedup comes from Slurm parallelism (100 tasks) combined with per-task multiprocessing (4 processes each).
+
+See [`benchmark/`](https://github.com/younesstrittmatter/slurptuna/tree/main/benchmark) for the full setup.

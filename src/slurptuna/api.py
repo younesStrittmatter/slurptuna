@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import multiprocessing
 import json
 import re
 import sys
@@ -15,7 +16,7 @@ import optuna
 from .evaluate import normalize_seed_loss, summarize_rows
 from .params import ParamValue, suggest_param
 from .registry import LossDefinition, register_loss
-from .slurm_backend import SlurmConfig, submit_trial, wait_for_summary
+from .slurm_backend import ChunkExecutionError, SlurmConfig, submit_trial, wait_for_summary
 
 
 class ExecutionMode(Enum):
@@ -42,8 +43,8 @@ class MultiOptimizeResult:
     results_by_entry: dict[str, OptimizeResult]
     best_values_by_entry: dict[str, float]
     best_params_by_entry: dict[str, dict[str, ParamValue]]
-    mode: ExecutionMode = ExecutionMode.SINGLE
     run_dir: str | None = None
+    mode: ExecutionMode = ExecutionMode.SINGLE
 
 
 def execution_mode(mode: str) -> ExecutionMode:
@@ -119,28 +120,59 @@ def _next_versioned_run_name(run_root: Path, loss_name: str) -> str:
     return f"{loss_name}_v{max_version + 1:04d}"
 
 
+_PROCESS_LOSS: LossDefinition | None = None
+_PROCESS_PARAMS: dict[str, ParamValue] | None = None
+_PROCESS_ENTRY_ID: str | None = None
+
+
+def _process_eval_seed(seed: int) -> dict[str, object]:
+    if _PROCESS_LOSS is None or _PROCESS_PARAMS is None:
+        raise RuntimeError("process worker state not initialized")
+    return normalize_seed_loss(
+        seed,
+        _PROCESS_LOSS.evaluate_seed_loss(
+            _PROCESS_PARAMS,
+            seed,
+            {"entry_id": _PROCESS_ENTRY_ID},
+        ),
+    )
+
+
 def _objective_local(
     *,
     trial: optuna.trial.Trial,
     loss: LossDefinition,
     active_seeds: list[int],
     entry_id: str | None,
+    worker_parallelism: int = 1,
+    use_processes: bool = False,
 ) -> float:
     params = {name: suggest_param(trial, name, spec) for name, spec in loss.parameter_space.items()}
 
-    rows = [
-        normalize_seed_loss(
+    def _eval_seed(seed: int) -> dict[str, object]:
+        return normalize_seed_loss(
             seed,
             loss.evaluate_seed_loss(
                 params,
                 seed,
-                {
-                    "entry_id": entry_id,
-                },
+                {"entry_id": entry_id},
             ),
         )
-        for seed in active_seeds
-    ]
+
+    if worker_parallelism == 1:
+        rows = [_eval_seed(seed) for seed in active_seeds]
+    elif use_processes:
+        global _PROCESS_LOSS, _PROCESS_PARAMS, _PROCESS_ENTRY_ID
+        _PROCESS_LOSS = loss
+        _PROCESS_PARAMS = params
+        _PROCESS_ENTRY_ID = entry_id
+        ctx = multiprocessing.get_context("fork")
+        with ctx.Pool(processes=worker_parallelism) as pool:
+            rows = pool.map(_process_eval_seed, active_seeds)
+    else:
+        with ThreadPoolExecutor(max_workers=worker_parallelism) as pool:
+            rows = list(pool.map(_eval_seed, active_seeds))
+
     summary = summarize_rows(rows)
     trial.set_user_attr("n_seeds", summary["n_seeds"])
     return float(summary["mean_total_loss"])
@@ -164,12 +196,15 @@ def optimize_run(
     slurm_poll_seconds: int = 15,
     slurm_timeout_minutes: int = 120,
     cpus_per_task: int = 1,
+    mem_per_cpu: str = "2G",
     max_concurrent_trials: int = 1,
     array_parallelism_limit: int | None = None,
     worker_parallelism: int = 1,
-    worker_time_limit: timedelta = timedelta(hours=1),
+    worker_time_limit: timedelta = timedelta(hours=2),
+    slurm_qos: str | None = "short",
     trial_retry_attempts: int = 1,
     fail_on_chunk_error: bool = True,
+    use_processes: bool = False,
 ) -> OptimizeResult:
     """Optimize hyperparameters for a single shared fit.
 
@@ -197,9 +232,19 @@ def optimize_run(
         max_concurrent_trials: Number of trials to run in parallel. Default 1.
         array_parallelism_limit: Max concurrent Slurm array jobs (DISTRIBUTED). Default unlimited.
         worker_parallelism: Number of seeds in parallel per worker. Default 1.
-        worker_time_limit: Max wall time per distributed task. Default 1 hour.
+        worker_time_limit: Max wall time per distributed task. Default 2 hours.
+        slurm_qos: Optional Slurm QoS name passed to `sbatch --qos`. Default "short".
+            Set to None to omit QoS entirely.
         trial_retry_attempts: Retry failed trials this many times. Default 1 (no retries).
         fail_on_chunk_error: Whether to fail immediately if any chunk fails in distributed mode. Default True.
+        use_processes: Use ProcessPoolExecutor instead of ThreadPoolExecutor for seed parallelism.
+            Default False (threads). Processes bypass Python's GIL, giving true parallelism even for
+            pure-Python loss functions. The trade-off is higher overhead per seed evaluation due to
+            inter-process pickling of the loss function, params, and results — so this is only worth
+            enabling when individual seed evaluations are slow enough that the pickling cost is
+            negligible (roughly >10 ms per seed). For numpy/scipy-heavy losses, threads are usually
+            sufficient because numpy already releases the GIL. For DISTRIBUTED mode, each Slurm task
+            is already a separate process, so this controls parallelism within each task.
 
     Returns:
         OptimizeResult with best_value, best_params, study metadata, and run_dir path.
@@ -215,6 +260,8 @@ def optimize_run(
         raise ValueError("array_parallelism_limit must be > 0 when provided")
     if worker_time_limit.total_seconds() <= 0:
         raise ValueError("worker_time_limit must be > 0 seconds")
+    if slurm_qos is not None and not str(slurm_qos).strip():
+        raise ValueError("slurm_qos must be a non-empty string or None")
 
     active_seeds, resolved_chunk_size, resolved_num_chunks = _resolve_seed_layout(
         loss=loss,
@@ -250,6 +297,7 @@ def optimize_run(
                 "array_parallelism_limit": array_parallelism_limit,
                 "worker_parallelism": worker_parallelism,
                 "worker_time_limit_seconds": int(worker_time_limit.total_seconds()),
+                "slurm_qos": slurm_qos,
             },
             indent=2,
         ),
@@ -280,12 +328,17 @@ def optimize_run(
         )
 
     if resolved_mode == ExecutionMode.SINGLE:
+        if use_processes and max_concurrent_trials > 1:
+            raise ValueError("use_processes=True requires max_concurrent_trials=1 in mode=single")
+
         def objective_local(trial: optuna.trial.Trial) -> float:
             return _objective_local(
                 trial=trial,
                 loss=loss,
                 active_seeds=active_seeds,
                 entry_id=entry_id,
+                worker_parallelism=worker_parallelism,
+                use_processes=use_processes,
             )
 
         study.optimize(objective_local, n_trials=n_trials, n_jobs=max_concurrent_trials, callbacks=[_write_summary_callback])
@@ -305,8 +358,10 @@ def optimize_run(
             poll_seconds=slurm_poll_seconds,
             timeout_minutes=slurm_timeout_minutes,
             cpus_per_task=cpus_per_task,
+            mem_per_cpu=mem_per_cpu,
             array_parallelism_limit=array_parallelism_limit,
             worker_time_limit=worker_time_limit,
+            qos=slurm_qos,
             fail_on_chunk_error=fail_on_chunk_error,
         )
 
@@ -321,7 +376,7 @@ def optimize_run(
 
             last_error: Exception | None = None
             for attempt in range(trial_retry_attempts + 1):
-                summary_path = submit_trial(
+                submitted_trial = submit_trial(
                     project_root=project_root,
                     run_dir=run_dir,
                     trial_number=trial.number,
@@ -333,27 +388,31 @@ def optimize_run(
                     num_chunks=resolved_num_chunks,
                     chunk_size=resolved_chunk_size,
                     worker_parallelism=worker_parallelism,
+                    use_processes=use_processes,
                     config=slurm_cfg,
                     python_executable=python_executable,
                 )
 
                 try:
-                    # Compute chunks_dir based on trial structure
-                    chunks_dir = summary_path.parent / "chunks"
                     summary = wait_for_summary(
-                        summary_path,
+                        submitted_trial.summary_path,
                         config=slurm_cfg,
-                        chunks_dir=chunks_dir,
-                        expected_chunks=resolved_num_chunks,
+                        chunk_job_id=submitted_trial.chunk_job_id,
+                        reduce_job_id=submitted_trial.reduce_job_id,
                     )
                     trial.set_user_attr("n_seeds", summary["n_seeds"])
                     trial.set_user_attr("retry_attempts_used", attempt)
                     return float(summary["mean_total_loss"])
-                except TimeoutError as exc:
+                except (ChunkExecutionError, TimeoutError) as exc:
                     last_error = exc
-                    trial.set_user_attr("last_timeout_attempt", attempt)
+                    trial.set_user_attr("last_failed_attempt", attempt)
+                    trial.set_user_attr("last_failure_type", type(exc).__name__)
                     continue
 
+            if isinstance(last_error, ChunkExecutionError):
+                raise ChunkExecutionError(
+                    f"Trial {trial.number} failed after {trial_retry_attempts + 1} attempts"
+                ) from last_error
             raise TimeoutError(
                 f"Trial {trial.number} failed after {trial_retry_attempts + 1} attempts"
             ) from last_error
@@ -384,6 +443,7 @@ def optimize_run(
                 "array_parallelism_limit": array_parallelism_limit,
                 "worker_parallelism": worker_parallelism,
                 "worker_time_limit_seconds": int(worker_time_limit.total_seconds()),
+                "slurm_qos": slurm_qos,
                 "best_value": float(study.best_value),
                 "best_params": dict(study.best_params),
             },
@@ -433,9 +493,12 @@ def optimize_entries(
     array_parallelism_limit: int | None = None,
     worker_parallelism: int = 1,
     max_concurrent_entries: int | None = None,
-    worker_time_limit: timedelta = timedelta(hours=1),
+    worker_time_limit: timedelta = timedelta(hours=2),
+    slurm_qos: str | None = "short",
     trial_retry_attempts: int = 1,
     fail_on_chunk_error: bool = True,
+    use_processes: bool = False,
+    mem_per_cpu: str = "2G",
 ) -> MultiOptimizeResult:
     """Optimize independent fits for each entry, returning per-entry best parameters.
 
@@ -465,9 +528,15 @@ def optimize_entries(
         array_parallelism_limit: Max concurrent Slurm array jobs across all entries (DISTRIBUTED). Default unlimited.
         worker_parallelism: Number of seeds in parallel per worker. Default 1.
         max_concurrent_entries: Number of entries to optimize in parallel. Default all entries.
-        worker_time_limit: Max wall time per distributed task. Default 1 hour.
+        worker_time_limit: Max wall time per distributed task. Default 2 hours.
+        slurm_qos: Optional Slurm QoS name passed to `sbatch --qos`. Default "short".
+            Set to None to omit QoS entirely.
         trial_retry_attempts: Retry failed trials this many times. Default 1 (no retries).
         fail_on_chunk_error: Whether to fail immediately if any chunk fails in distributed mode. Default True.
+        use_processes: Use ProcessPoolExecutor instead of ThreadPoolExecutor for seed parallelism.
+            Default False (threads). See optimize_run() for full details on when to prefer processes
+            over threads.
+        mem_per_cpu: Memory per CPU for Slurm chunk tasks (DISTRIBUTED only). Default "2G".
 
     Returns:
         MultiOptimizeResult containing:
@@ -520,8 +589,11 @@ def optimize_entries(
             array_parallelism_limit=array_parallelism_limit,
             worker_parallelism=worker_parallelism,
             worker_time_limit=worker_time_limit,
+            slurm_qos=slurm_qos,
             trial_retry_attempts=trial_retry_attempts,
             fail_on_chunk_error=fail_on_chunk_error,
+            use_processes=use_processes,
+            mem_per_cpu=mem_per_cpu,
         )
         return entry, result
 

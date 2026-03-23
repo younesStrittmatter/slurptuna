@@ -26,15 +26,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-name", type=str, default=None)
     parser.add_argument("--slurm-poll-seconds", type=int, default=15)
     parser.add_argument("--slurm-timeout-minutes", type=int, default=120)
+    parser.add_argument("--slurm-qos", type=str, default="short")
     parser.add_argument("--trial-retry-attempts", type=int, default=1)
     parser.add_argument("--cpus-per-task", type=int, default=1)
+    parser.add_argument("--mem-per-cpu", type=str, default="2G")
     parser.add_argument("--max-concurrent-trials", type=int, default=1)
     parser.add_argument("--array-parallelism-limit", type=int, default=None)
     parser.add_argument("--worker-parallelism", type=int, default=1)
     parser.add_argument("--entry-ids", nargs="*", default=None)
     parser.add_argument("--max-concurrent-entries", type=int, default=None)
     parser.add_argument("--run-name-prefix", type=str, default=None)
-    parser.add_argument("--worker-time-limit-seconds", type=int, default=3600)
+    parser.add_argument("--worker-time-limit-seconds", type=int, default=7200)
     parser.add_argument("--out", type=Path, default=Path("results.json"))
     return parser
 
@@ -52,6 +54,7 @@ def main() -> None:
     loss = get_registered_loss(args.loss_name)
     execution_mode = ExecutionMode(args.execution_mode)
     worker_time_limit = _seconds_to_timedelta(args.worker_time_limit_seconds)
+    slurm_qos = args.slurm_qos if args.slurm_qos else None
 
     if args.mode == "single":
         result = optimize_run(
@@ -70,10 +73,12 @@ def main() -> None:
             slurm_timeout_minutes=args.slurm_timeout_minutes,
             trial_retry_attempts=args.trial_retry_attempts,
             cpus_per_task=args.cpus_per_task,
+            mem_per_cpu=args.mem_per_cpu,
             max_concurrent_trials=args.max_concurrent_trials,
             array_parallelism_limit=args.array_parallelism_limit,
             worker_parallelism=args.worker_parallelism,
             worker_time_limit=worker_time_limit,
+            slurm_qos=slurm_qos,
         )
 
         payload = {
@@ -105,11 +110,13 @@ def main() -> None:
             slurm_timeout_minutes=args.slurm_timeout_minutes,
             trial_retry_attempts=args.trial_retry_attempts,
             cpus_per_task=args.cpus_per_task,
+            mem_per_cpu=args.mem_per_cpu,
             max_concurrent_trials=args.max_concurrent_trials,
             array_parallelism_limit=args.array_parallelism_limit,
             worker_parallelism=args.worker_parallelism,
             max_concurrent_entries=args.max_concurrent_entries,
             worker_time_limit=worker_time_limit,
+            slurm_qos=slurm_qos,
         )
 
         payload = {

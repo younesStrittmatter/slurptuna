@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
+import multiprocessing
 import os
 from pathlib import Path
 
@@ -10,6 +11,24 @@ import importlib.util
 
 from .evaluate import normalize_seed_loss, summarize_rows
 from .registry import get_registered_loss
+
+
+_CHUNK_LOSS = None
+_CHUNK_PARAMS: dict[str, object] | None = None
+_CHUNK_ENTRY_ID: str | None = None
+
+
+def _chunk_eval_seed(seed: int) -> dict[str, object]:
+    if _CHUNK_LOSS is None or _CHUNK_PARAMS is None:
+        raise RuntimeError("chunk worker state not initialized")
+    return normalize_seed_loss(
+        seed,
+        _CHUNK_LOSS.evaluate_seed_loss(
+            _CHUNK_PARAMS,
+            seed,
+            {"entry_id": _CHUNK_ENTRY_ID},
+        ),
+    )
 
 
 def _import_loss_module(module_str: str) -> None:
@@ -33,6 +52,7 @@ def _chunk_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed-start", required=True, type=int)
     p.add_argument("--chunk-size", required=True, type=int)
     p.add_argument("--workers", default=1, type=int)
+    p.add_argument("--use-processes", action="store_true", default=False)
     p.add_argument("--entry-id", default="")
     return p
 
@@ -72,6 +92,14 @@ def run_chunk(args: argparse.Namespace) -> None:
     seeds = range(start, end)
     if args.workers == 1:
         rows = [_eval_seed(seed) for seed in seeds]
+    elif args.use_processes:
+        global _CHUNK_LOSS, _CHUNK_PARAMS, _CHUNK_ENTRY_ID
+        _CHUNK_LOSS = loss
+        _CHUNK_PARAMS = params
+        _CHUNK_ENTRY_ID = args.entry_id or None
+        ctx = multiprocessing.get_context("fork")
+        with ctx.Pool(processes=args.workers) as pool:
+            rows = pool.map(_chunk_eval_seed, seeds)
     else:
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
             rows = list(pool.map(_eval_seed, seeds))
@@ -94,19 +122,38 @@ def run_reduce(args: argparse.Namespace) -> None:
             f"Expected {args.expected_chunks} chunks, found {len(chunk_paths)} in {args.chunks_dir}"
         )
 
-    rows = []
+    # Aggregate chunk-level statistics directly to avoid building per-seed rows in memory.
+    total_n = 0
+    weighted_mean_sum = 0.0
+    chunk_stats: list[tuple[int, float, float]] = []
+
     for path in chunk_paths:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        totals = payload.get("total_losses", [])
-        seed_start = int(payload["seed_start"])
-        for i, value in enumerate(totals):
-            rows.append({
-                "seed": seed_start + i,
-                "total_loss": float(value),
-                "components": {},
-            })
+        chunk_n = int(payload["n_seeds"])
+        chunk_mean = float(payload["mean_total_loss"])
+        chunk_std = float(payload["std_total_loss"])
+        chunk_var = chunk_std * chunk_std
 
-    summary = summarize_rows(rows)
+        total_n += chunk_n
+        weighted_mean_sum += chunk_n * chunk_mean
+        chunk_stats.append((chunk_n, chunk_mean, chunk_var))
+
+    if total_n <= 0:
+        raise RuntimeError("No seeds found while reducing chunk summaries")
+
+    global_mean = weighted_mean_sum / total_n
+    global_var = sum(
+        chunk_n * (chunk_var + (chunk_mean - global_mean) ** 2)
+        for chunk_n, chunk_mean, chunk_var in chunk_stats
+    ) / total_n
+    global_std = global_var ** 0.5
+
+    summary = {
+        "n_seeds": total_n,
+        "mean_total_loss": float(global_mean),
+        "std_total_loss": float(global_std),
+        "stderr_total_loss": float(global_std / (total_n ** 0.5)),
+    }
     args.out_json.parent.mkdir(parents=True, exist_ok=True)
     args.out_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
