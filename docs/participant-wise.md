@@ -41,7 +41,8 @@ if __name__ == "__main__":
         max_concurrent_trials=2,
         worker_parallelism=2,
         cpus_per_task=2,
-        worker_time_limit=timedelta(minutes=30),
+        worker_time_limit=timedelta(hours=2),
+        slurm_qos="short",
     )
 
     for pid, params in result.best_params_by_entry.items():

@@ -33,7 +33,7 @@ uv add slurptuna
 ## Next steps
 
 - [Quickstart](quickstart.md) — write your first loss and run it
-- [Distributed Mode](distributed.md) — how chunk/reduce jobs work and what knobs to turn
+- [Distributed Mode](distributed.md) — how chunk/reduce jobs work, what knobs to turn, and benchmark numbers
 - [Participant-wise Fitting](participant-wise.md) — fitting one parameter set per participant
 
 Full docs: [younesstrittmatter.github.io/slurptuna](https://younesstrittmatter.github.io/slurptuna)

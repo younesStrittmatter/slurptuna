@@ -9,15 +9,42 @@ from datetime import timedelta
 from pathlib import Path
 
 
+TERMINAL_FAILURE_STATES = {
+    "BOOT_FAIL",
+    "CANCELLED",
+    "DEADLINE",
+    "FAILED",
+    "NODE_FAIL",
+    "OUT_OF_MEMORY",
+    "PREEMPTED",
+    "REVOKED",
+    "SPECIAL_EXIT",
+    "TIMEOUT",
+}
+
+
+class ChunkExecutionError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class SlurmConfig:
     poll_seconds: int = 15
     timeout_minutes: int = 120
     cpus_per_task: int = 1
+    mem_per_cpu: str = "2G"  # --mem-per-cpu passed to each chunk sbatch task
     array_parallelism_limit: int | None = None
-    worker_time_limit: timedelta = timedelta(hours=1)  # --time passed to chunk/reduce sbatch jobs
+    worker_time_limit: timedelta = timedelta(hours=2)  # --time passed to chunk/reduce sbatch jobs
+    qos: str | None = "short"  # Optional --qos passed to chunk/reduce sbatch jobs
     sbatch_executable: str = "sbatch"
     fail_on_chunk_error: bool = True  # Fail immediately if any chunk fails instead of continuing
+
+
+@dataclass(frozen=True)
+class SubmittedTrial:
+    summary_path: Path
+    chunk_job_id: str | None
+    reduce_job_id: str
 
 
 def _to_slurm_time_limit(value: timedelta) -> str:
@@ -39,6 +66,41 @@ def _extract_job_id(sbatch_output: str) -> str:
 def _run_cmd(cmd: list[str]) -> str:
     out = subprocess.check_output(cmd, text=True)
     return out.strip()
+
+
+def _run_sbatch_with_optional_qos_fallback(cmd: list[str], *, qos: str | None) -> str:
+    try:
+        return _run_cmd(cmd)
+    except subprocess.CalledProcessError:
+        # Some clusters reject unknown QoS names; retry once without --qos.
+        if qos is None:
+            raise
+        cmd_without_qos = [part for part in cmd if not part.startswith("--qos=")]
+        if len(cmd_without_qos) == len(cmd):
+            raise
+        return _run_cmd(cmd_without_qos)
+
+
+def _normalize_slurm_state(raw_state: str) -> str:
+    state = raw_state.strip().split()[0]
+    return state.rstrip("+")
+
+
+def _get_job_states(job_id: str) -> list[str]:
+    try:
+        out = _run_cmd(["sacct", "-n", "-P", "-j", job_id, "--format=State"])
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+
+    states: list[str] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        raw_state = line.split("|", 1)[0]
+        if raw_state:
+            states.append(_normalize_slurm_state(raw_state))
+    return states
 
 
 def find_missing_chunks(chunks_dir: Path, num_chunks: int) -> list[int]:
@@ -82,9 +144,10 @@ def submit_trial(
     num_chunks: int,
     chunk_size: int,
     worker_parallelism: int,
+    use_processes: bool,
     config: SlurmConfig,
     python_executable: str,
-) -> Path:
+) -> SubmittedTrial:
     trial_dir = run_dir / "trials" / f"trial_{trial_number:05d}"
     chunks_dir = trial_dir / "chunks"
     chunks_dir.mkdir(parents=True, exist_ok=True)
@@ -107,7 +170,8 @@ def submit_trial(
         f"--seed-start {seed_start} "
         f"--chunk-size {chunk_size} "
         f"--workers {worker_parallelism} "
-        f"--entry-id {shlex.quote(entry_id or '')}"
+        + ("--use-processes " if use_processes else "")
+        + f"--entry-id {shlex.quote(entry_id or '')}"
     )
 
     missing_chunks = find_missing_chunks(chunks_dir, num_chunks)
@@ -122,6 +186,11 @@ def submit_trial(
             f"--array={array_spec}",
             f"--cpus-per-task={config.cpus_per_task}",
             f"--time={slurm_time_limit}",
+        ]
+        if config.qos:
+            chunk_submit.append(f"--qos={config.qos}")
+        chunk_submit.append(f"--mem-per-cpu={config.mem_per_cpu}")
+        chunk_submit.extend([
             "--output",
             str(logs_dir / "chunk_%A_%a.out"),
             "--error",
@@ -129,8 +198,8 @@ def submit_trial(
             "--parsable",
             "--wrap",
             chunk_cmd,
-        ]
-        chunk_job_id = _extract_job_id(_run_cmd(chunk_submit))
+        ])
+        chunk_job_id = _extract_job_id(_run_sbatch_with_optional_qos_fallback(chunk_submit, qos=config.qos))
 
     reduce_cmd = (
         f"cd {shlex.quote(str(project_root))} && "
@@ -144,8 +213,13 @@ def submit_trial(
     if chunk_job_id is not None:
         reduce_submit.append(f"--dependency=afterok:{chunk_job_id}")
     reduce_submit.extend([
-        f"--cpus-per-task={config.cpus_per_task}",
+        "--cpus-per-task=1",
         f"--time={slurm_time_limit}",
+        f"--mem-per-cpu={config.mem_per_cpu}",
+    ])
+    if config.qos:
+        reduce_submit.append(f"--qos={config.qos}")
+    reduce_submit.extend([
         "--output",
         str(logs_dir / "reduce_%j.out"),
         "--error",
@@ -154,32 +228,46 @@ def submit_trial(
         "--wrap",
         reduce_cmd,
     ])
-    _run_cmd(reduce_submit)
+    reduce_job_id = _extract_job_id(_run_sbatch_with_optional_qos_fallback(reduce_submit, qos=config.qos))
 
-    return summary_path
+    return SubmittedTrial(
+        summary_path=summary_path,
+        chunk_job_id=chunk_job_id,
+        reduce_job_id=reduce_job_id,
+    )
 
 
 def wait_for_summary(
     summary_path: Path,
     *,
     config: SlurmConfig,
-    chunks_dir: Path | None = None,
-    expected_chunks: int | None = None,
+    chunk_job_id: str | None = None,
+    reduce_job_id: str | None = None,
 ) -> dict[str, object]:
     deadline = time.time() + (config.timeout_minutes * 60)
     while True:
         if summary_path.exists():
             return json.loads(summary_path.read_text(encoding="utf-8"))
-        
-        # If fail_on_chunk_error is True, check for missing chunks and fail fast
-        if config.fail_on_chunk_error and chunks_dir is not None and expected_chunks is not None:
-            missing = find_missing_chunks(chunks_dir, expected_chunks)
-            if missing:
-                raise RuntimeError(
-                    f"Chunks failed: missing chunks {missing} out of {expected_chunks}. "
-                    f"Check logs in {chunks_dir.parent} for details."
-                )
-        
+
+        if config.fail_on_chunk_error:
+            if chunk_job_id is not None:
+                chunk_states = _get_job_states(chunk_job_id)
+                failed_chunk_states = sorted({state for state in chunk_states if state in TERMINAL_FAILURE_STATES})
+                if failed_chunk_states:
+                    raise ChunkExecutionError(
+                        "Chunk job failed before producing a summary. "
+                        f"chunk_job_id={chunk_job_id}, states={failed_chunk_states}."
+                    )
+
+            if reduce_job_id is not None:
+                reduce_states = _get_job_states(reduce_job_id)
+                failed_reduce_states = sorted({state for state in reduce_states if state in TERMINAL_FAILURE_STATES})
+                if failed_reduce_states:
+                    raise ChunkExecutionError(
+                        "Reduce job failed before producing a summary. "
+                        f"reduce_job_id={reduce_job_id}, states={failed_reduce_states}."
+                    )
+
         if time.time() >= deadline:
             raise TimeoutError(f"Timed out waiting for {summary_path}")
         time.sleep(config.poll_seconds)
